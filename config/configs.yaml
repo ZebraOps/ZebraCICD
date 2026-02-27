@@ -1,0 +1,25 @@
+app:
+  Port: 9527
+  DatabaseURL: "postgres://postgres:postgres123@192.168.192.87:5432/postgres?sslmode=disable"
+  GitLabToken: "xnfDCyU84vye7hUpsXL3"
+  GitLabURL: "https://git.zmcms.cn"
+  HarborURL: "http://192.168.192.90:80"
+  JenkinsURL: "http://192.168.192.87:8081/"
+  JenkinsUser: "jenkins"
+  JenkinsPass: "11b897a827d20d9984eeda5f4f2f1430c0"
+  WorkerPeriod: "5m"
+  SecretsPath: "/etc/secrets"
+
+logging:
+  level: "debug"
+  encoding: "json"
+  output_paths:
+    - "stdout"
+    - "./logs/app.log"
+  error_output_paths:
+    - "stderr"
+    - "./logs/error.log"
+  max_size: 100  # MB
+  max_age: 30    # days
+  max_backups: 10
+  compress: true

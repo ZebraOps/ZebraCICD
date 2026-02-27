@@ -1,0 +1,4129 @@
+{
+    "swagger": "2.0",
+    "info": {
+        "description": "Minimal OpenAPI spec for Zebra-CICD endpoints",
+        "title": "Zebra-CICD API",
+        "contact": {},
+        "version": "0.1.0"
+    },
+    "host": "localhost:9527",
+    "basePath": "/",
+    "paths": {
+        "/api/deploys": {
+            "post": {
+                "description": "创建一个新的部署任务，触发Jenkins构建并部署到K8s",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "deploys"
+                ],
+                "summary": "创建部署任务",
+                "parameters": [
+                    {
+                        "description": "部署任务信息",
+                        "name": "task",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/model.DeployTask"
+                        }
+                    }
+                ],
+                "responses": {
+                    "202": {
+                        "description": "Accepted",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "integer"
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/deploys/{id}": {
+            "get": {
+                "description": "根据任务ID获取部署任务详情",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "deploys"
+                ],
+                "summary": "根据ID获取部署任务",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "任务ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/model.DeployTask"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/environments": {
+            "get": {
+                "description": "获取所有环境的列表，支持按名称、类型、状态等条件查询",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "environments"
+                ],
+                "summary": "获取环境列表",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "环境名称",
+                        "name": "name",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "环境类型",
+                        "name": "type",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "环境状态",
+                        "name": "status",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "default": 1,
+                        "description": "页码",
+                        "name": "page",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "default": 10,
+                        "description": "页数",
+                        "name": "size",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/types.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "allOf": [
+                                                {
+                                                    "$ref": "#/definitions/types.PageResponse"
+                                                },
+                                                {
+                                                    "type": "object",
+                                                    "properties": {
+                                                        "records": {
+                                                            "type": "array",
+                                                            "items": {
+                                                                "$ref": "#/definitions/model.Environment"
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            ]
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            },
+            "post": {
+                "description": "创建一个新的环境",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "environments"
+                ],
+                "summary": "创建环境",
+                "parameters": [
+                    {
+                        "description": "环境信息",
+                        "name": "env",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/model.Environment"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/model.Environment"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/environments/{id}": {
+            "get": {
+                "description": "根据环境ID获取环境详情",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "environments"
+                ],
+                "summary": "根据ID获取环境",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "环境ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/model.Environment"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            },
+            "put": {
+                "description": "根据环境ID更新环境信息",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "environments"
+                ],
+                "summary": "更新环境",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "环境ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "环境信息",
+                        "name": "env",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/model.Environment"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/model.Environment"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "description": "根据环境ID删除环境（软删除）",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "environments"
+                ],
+                "summary": "删除环境",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "环境ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/image-registries": {
+            "get": {
+                "description": "获取所有镜像仓库的列表，支持按名称、地址过滤，支持分页",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "image-repositories"
+                ],
+                "summary": "获取镜像仓库列表",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "仓库名称",
+                        "name": "name",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "仓库地址",
+                        "name": "url",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "default": 1,
+                        "description": "页码",
+                        "name": "page",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "default": 10,
+                        "description": "每页数量",
+                        "name": "size",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/types.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "allOf": [
+                                                {
+                                                    "$ref": "#/definitions/types.PageResponse"
+                                                },
+                                                {
+                                                    "type": "object",
+                                                    "properties": {
+                                                        "records": {
+                                                            "type": "array",
+                                                            "items": {
+                                                                "$ref": "#/definitions/model.ImageRepository"
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            ]
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            },
+            "post": {
+                "description": "创建一个新的镜像仓库",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "image-repositories"
+                ],
+                "summary": "创建镜像仓库",
+                "parameters": [
+                    {
+                        "description": "镜像仓库信息",
+                        "name": "repository",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/model.ImageRepository"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/model.ImageRepository"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/image-registries/{id}": {
+            "get": {
+                "description": "根据镜像仓库ID获取镜像仓库详情",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "image-repositories"
+                ],
+                "summary": "根据ID获取镜像仓库",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "镜像仓库ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/model.ImageRepository"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            },
+            "put": {
+                "description": "根据镜像仓库ID更新镜像仓库信息",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "image-repositories"
+                ],
+                "summary": "更新镜像仓库",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "镜像仓库ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "镜像仓库信息",
+                        "name": "repository",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/model.ImageRepository"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/model.ImageRepository"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "description": "根据镜像仓库ID删除镜像仓库（软删除）",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "image-repositories"
+                ],
+                "summary": "删除镜像仓库",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "镜像仓库ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/k8s/clusters": {
+            "get": {
+                "description": "获取所有K8s集群的列表，支持按名称、状态等条件查询",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "k8s"
+                ],
+                "summary": "获取K8s集群列表",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "集群名称",
+                        "name": "name",
+                        "in": "query"
+                    },
+                    {
+                        "type": "boolean",
+                        "description": "是否启用",
+                        "name": "enabled",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "集群厂商",
+                        "name": "vendor",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "集群环境",
+                        "name": "environment",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "default": 1,
+                        "description": "页码",
+                        "name": "page",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "default": 10,
+                        "description": "页数",
+                        "name": "size",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/types.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "allOf": [
+                                                {
+                                                    "$ref": "#/definitions/types.PageResponse"
+                                                },
+                                                {
+                                                    "type": "object",
+                                                    "properties": {
+                                                        "records": {
+                                                            "type": "array",
+                                                            "items": {
+                                                                "$ref": "#/definitions/model.K8SCluster"
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            ]
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            },
+            "post": {
+                "description": "创建一个新的K8s集群凭证",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "k8s"
+                ],
+                "summary": "创建K8s集群",
+                "parameters": [
+                    {
+                        "description": "K8s集群信息",
+                        "name": "cluster",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/model.K8SCluster"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/model.K8SCluster"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/k8s/clusters/{id}": {
+            "get": {
+                "description": "根据集群ID获取K8s集群详情",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "k8s"
+                ],
+                "summary": "根据ID获取K8s集群",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "集群ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/model.K8SCluster"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            },
+            "put": {
+                "description": "根据集群ID更新K8s集群信息",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "k8s"
+                ],
+                "summary": "更新K8s集群",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "集群ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "K8s集群信息",
+                        "name": "cluster",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/model.K8SCluster"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/model.K8SCluster"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "description": "根据集群ID删除K8s集群",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "k8s"
+                ],
+                "summary": "删除K8s集群",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "集群ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/k8s/clusters/{id}/connect": {
+            "post": {
+                "description": "测试连接到K8s集群",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "k8s"
+                ],
+                "summary": "连接K8s集群",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "集群ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/k8s/clusters/{id}/pods": {
+            "get": {
+                "description": "获取K8s集群中的Pod列表",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "k8s"
+                ],
+                "summary": "获取Pod列表",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "集群ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "default": "default",
+                        "description": "命名空间",
+                        "name": "namespace",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/types.PodInfo"
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/linux-machines": {
+            "get": {
+                "description": "获取所有服务器的列表，支持按名称、主机等条件查询",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "servers"
+                ],
+                "summary": "获取服务器列表",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "服务器名称",
+                        "name": "name",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "服务器主机地址",
+                        "name": "host",
+                        "in": "query"
+                    },
+                    {
+                        "type": "boolean",
+                        "description": "是否激活",
+                        "name": "isActive",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "default": 1,
+                        "description": "页码",
+                        "name": "page",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "default": 10,
+                        "description": "页数",
+                        "name": "size",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/types.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "allOf": [
+                                                {
+                                                    "$ref": "#/definitions/types.PageResponse"
+                                                },
+                                                {
+                                                    "type": "object",
+                                                    "properties": {
+                                                        "records": {
+                                                            "type": "array",
+                                                            "items": {
+                                                                "$ref": "#/definitions/model.Server"
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            ]
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            },
+            "post": {
+                "description": "创建一个新的服务器连接信息",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "servers"
+                ],
+                "summary": "创建服务器",
+                "parameters": [
+                    {
+                        "description": "服务器信息",
+                        "name": "server",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/model.Server"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/model.Server"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/linux-machines/{id}": {
+            "get": {
+                "description": "根据服务器ID获取服务器详情",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "servers"
+                ],
+                "summary": "根据ID获取服务器",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "服务器ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/model.Server"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            },
+            "put": {
+                "description": "根据服务器ID更新服务器信息",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "servers"
+                ],
+                "summary": "更新服务器",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "服务器ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "服务器信息",
+                        "name": "server",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/model.Server"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/model.Server"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "description": "根据服务器ID删除服务器",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "servers"
+                ],
+                "summary": "删除服务器",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "服务器ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/linux-machines/{id}/connect": {
+            "post": {
+                "description": "测试连接到服务器",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "servers"
+                ],
+                "summary": "连接服务器",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "服务器ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/linux-machines/{id}/containers": {
+            "get": {
+                "description": "获取服务器上的Docker容器列表",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "servers"
+                ],
+                "summary": "获取Docker容器列表",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "服务器ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/model.DockerContainer"
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/repos": {
+            "get": {
+                "description": "获取所有仓库的列表，支持按中文名称、英文名称、部门、编程语言、项目管理者等条件查询",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "repos"
+                ],
+                "summary": "获取仓库列表",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "中文名称",
+                        "name": "c_name",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "英文名称",
+                        "name": "e_name",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "归属部门",
+                        "name": "repo_department",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "编程语言",
+                        "name": "language",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "项目管理者",
+                        "name": "repo_manager",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "default": 1,
+                        "description": "页码",
+                        "name": "page",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "default": 10,
+                        "description": "页数",
+                        "name": "size",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/types.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "allOf": [
+                                                {
+                                                    "$ref": "#/definitions/types.PageResponse"
+                                                },
+                                                {
+                                                    "type": "object",
+                                                    "properties": {
+                                                        "records": {
+                                                            "type": "array",
+                                                            "items": {
+                                                                "$ref": "#/definitions/model.Repo"
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            ]
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            },
+            "post": {
+                "description": "创建一个新的仓库",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "repos"
+                ],
+                "summary": "创建仓库",
+                "parameters": [
+                    {
+                        "description": "仓库信息",
+                        "name": "repo",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/model.Repo"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/model.Repo"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/repos/gitlab-url/{repoID}": {
+            "get": {
+                "description": "根据repoID从GitLab获取仓库信息",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "repos"
+                ],
+                "summary": "根据repoID从GitLab获取仓库信息",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "仓库ID",
+                        "name": "repoID",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.Response"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/repos/{id}": {
+            "get": {
+                "description": "根据仓库ID获取仓库详情",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "repos"
+                ],
+                "summary": "根据ID获取仓库",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "仓库ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/model.Repo"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            },
+            "put": {
+                "description": "根据仓库ID更新仓库信息",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "repos"
+                ],
+                "summary": "更新仓库",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "仓库ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "仓库信息",
+                        "name": "repo",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/model.Repo"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/model.Repo"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "description": "根据仓库ID删除仓库",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "repos"
+                ],
+                "summary": "删除仓库",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "仓库ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/repos/{id}/templates": {
+            "get": {
+                "description": "根据仓库ID获取所有关联的构建模板",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "repos"
+                ],
+                "summary": "获取仓库关联的模板",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "仓库ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/model.BuildTemplate"
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/servers/{id}/containers/{containerID}/attach": {
+            "get": {
+                "description": "连接到指定容器（类似docker attach）",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "containers"
+                ],
+                "summary": "连接到容器",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "服务器ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "容器ID",
+                        "name": "containerID",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "101": {
+                        "description": "Switching Protocols",
+                        "schema": {
+                            "type": "object"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/servers/{id}/containers/{containerID}/exec": {
+            "post": {
+                "description": "在指定容器中执行命令",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "containers"
+                ],
+                "summary": "在容器中执行命令",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "服务器ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "容器ID",
+                        "name": "containerID",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "执行命令",
+                        "name": "command",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.ContainerExecRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.ContainerExecResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/templates/build": {
+            "get": {
+                "description": "获取所有构建模板的列表，支持按名称、语言、创建者过滤，支持分页",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "buildTemplates"
+                ],
+                "summary": "获取构建模板列表",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "模板名称",
+                        "name": "name",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "编程语言",
+                        "name": "language",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "创建者",
+                        "name": "creator",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "修改人",
+                        "name": "updater",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "default": 1,
+                        "description": "页码",
+                        "name": "page",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "default": 10,
+                        "description": "每页数量",
+                        "name": "size",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/types.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "allOf": [
+                                                {
+                                                    "$ref": "#/definitions/types.PageResponse"
+                                                },
+                                                {
+                                                    "type": "object",
+                                                    "properties": {
+                                                        "records": {
+                                                            "type": "array",
+                                                            "items": {
+                                                                "$ref": "#/definitions/model.BuildTemplate"
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            ]
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            },
+            "post": {
+                "description": "创建一个新的构建模板",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "buildTemplates"
+                ],
+                "summary": "创建构建模板",
+                "parameters": [
+                    {
+                        "description": "构建模板信息",
+                        "name": "template",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/model.BuildTemplate"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/model.BuildTemplate"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/templates/build/{id}": {
+            "get": {
+                "description": "根据模板ID获取构建模板详情",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "buildTemplates"
+                ],
+                "summary": "根据ID获取构建模板",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "模板ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/model.BuildTemplate"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            },
+            "put": {
+                "description": "根据模板ID更新构建模板信息",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "buildTemplates"
+                ],
+                "summary": "更新构建模板",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "模板ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "构建模板信息",
+                        "name": "template",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/model.BuildTemplate"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/model.BuildTemplate"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "description": "根据模板ID删除构建模板",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "buildTemplates"
+                ],
+                "summary": "删除构建模板",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "模板ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/templates/build/{id}/history": {
+            "get": {
+                "description": "根据模板ID获取模板的修改历史记录，支持分页",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "buildTemplates"
+                ],
+                "summary": "获取模板修改历史",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "模板ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "default": 1,
+                        "description": "页码",
+                        "name": "page",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "default": 10,
+                        "description": "每页数量",
+                        "name": "size",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/types.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "allOf": [
+                                                {
+                                                    "$ref": "#/definitions/types.PageResponse"
+                                                },
+                                                {
+                                                    "type": "object",
+                                                    "properties": {
+                                                        "records": {
+                                                            "type": "array",
+                                                            "items": {
+                                                                "$ref": "#/definitions/model.TemplateHistory"
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            ]
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/templates/build/{templateId}/repos/{repoId}": {
+            "post": {
+                "description": "将仓库与构建模板进行关联",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "template-repo"
+                ],
+                "summary": "关联仓库和模板",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "模板ID",
+                        "name": "templateId",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "仓库ID",
+                        "name": "repoId",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "description": "取消仓库与构建模板的关联",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "template-repo"
+                ],
+                "summary": "取消仓库和模板关联",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "模板ID",
+                        "name": "templateId",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "仓库ID",
+                        "name": "repoId",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/templates/deployment": {
+            "get": {
+                "description": "获取所有部署模板的列表，支持按名称、类型、状态等条件查询",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "deployment-templates"
+                ],
+                "summary": "获取部署模板列表",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "部署模板名称",
+                        "name": "name",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "模板类型",
+                        "name": "type",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "状态",
+                        "name": "status",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "创建人",
+                        "name": "creator",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "default": 1,
+                        "description": "页码",
+                        "name": "page",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "default": 10,
+                        "description": "页数",
+                        "name": "size",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/types.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "allOf": [
+                                                {
+                                                    "$ref": "#/definitions/types.PageResponse"
+                                                },
+                                                {
+                                                    "type": "object",
+                                                    "properties": {
+                                                        "records": {
+                                                            "type": "array",
+                                                            "items": {
+                                                                "$ref": "#/definitions/model.DeploymentTemplate"
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            ]
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            },
+            "post": {
+                "description": "创建一个新的部署模板",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "deployment-templates"
+                ],
+                "summary": "创建部署模板",
+                "parameters": [
+                    {
+                        "description": "部署模板信息",
+                        "name": "template",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/model.DeploymentTemplate"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/model.DeploymentTemplate"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/templates/deployment/{id}": {
+            "get": {
+                "description": "根据部署模板ID获取部署模板详情",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "deployment-templates"
+                ],
+                "summary": "根据ID获取部署模板",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "部署模板ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/model.DeploymentTemplate"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            },
+            "put": {
+                "description": "根据部署模板ID更新部署模板信息",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "deployment-templates"
+                ],
+                "summary": "更新部署模板",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "部署模板ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "部署模板信息",
+                        "name": "template",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/model.DeploymentTemplate"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/model.DeploymentTemplate"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "description": "根据部署模板ID删除部署模板（软删除）",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "deployment-templates"
+                ],
+                "summary": "删除部署模板",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "部署模板ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/templates/deployment/{id}/history": {
+            "get": {
+                "description": "根据部署模板ID获取模板的修改历史记录",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "deployment-templates"
+                ],
+                "summary": "获取部署模板历史记录",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "模板ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/model.DeploymentTemplateHistory"
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/templates/deployment/{id}/repos": {
+            "get": {
+                "description": "根据部署模板ID获取所有关联的仓库列表",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "deployment-templates"
+                ],
+                "summary": "获取关联的仓库列表",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "模板ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/model.Repo"
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/templates/deployment/{id}/repos/{repoId}": {
+            "post": {
+                "description": "将仓库与部署模板进行关联",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "deployment-template-repo"
+                ],
+                "summary": "关联仓库和部署模板",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "模板ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "仓库ID",
+                        "name": "repoId",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "description": "取消仓库与部署模板的关联",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "deployment-template-repo"
+                ],
+                "summary": "取消仓库和部署模板关联",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "模板ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "仓库ID",
+                        "name": "repoId",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/vendors": {
+            "get": {
+                "description": "获取所有云厂商的列表，支持按名称、提供商、状态等条件查询",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "cloud-providers"
+                ],
+                "summary": "获取云厂商列表",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "云厂商名称",
+                        "name": "name",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "提供商标识",
+                        "name": "provider",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "状态",
+                        "name": "status",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "default": 1,
+                        "description": "页码",
+                        "name": "page",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "default": 10,
+                        "description": "页数",
+                        "name": "size",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/types.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "allOf": [
+                                                {
+                                                    "$ref": "#/definitions/types.PageResponse"
+                                                },
+                                                {
+                                                    "type": "object",
+                                                    "properties": {
+                                                        "records": {
+                                                            "type": "array",
+                                                            "items": {
+                                                                "$ref": "#/definitions/model.CloudProvider"
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            ]
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            },
+            "post": {
+                "description": "创建一个新的云厂商",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "cloud-providers"
+                ],
+                "summary": "创建云厂商",
+                "parameters": [
+                    {
+                        "description": "云厂商信息",
+                        "name": "provider",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/model.CloudProvider"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/model.CloudProvider"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/vendors/{id}": {
+            "get": {
+                "description": "根据云厂商ID获取云厂商详情",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "cloud-providers"
+                ],
+                "summary": "根据ID获取云厂商",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "云厂商ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/model.CloudProvider"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            },
+            "put": {
+                "description": "根据云厂商ID更新云厂商信息",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "cloud-providers"
+                ],
+                "summary": "更新云厂商",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "云厂商ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "云厂商信息",
+                        "name": "provider",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/model.CloudProvider"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/model.CloudProvider"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "description": "根据云厂商ID删除云厂商（软删除）",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "cloud-providers"
+                ],
+                "summary": "删除云厂商",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "云厂商ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/health": {
+            "get": {
+                "description": "检查服务是否正常运行",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "health"
+                ],
+                "summary": "健康检查",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    },
+    "definitions": {
+        "model.BuildTemplate": {
+            "type": "object",
+            "properties": {
+                "created_at": {
+                    "type": "string"
+                },
+                "creator": {
+                    "type": "string"
+                },
+                "dockerfile": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "language": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "pipeline": {
+                    "type": "string"
+                },
+                "repos": {
+                    "description": "关联Repo表的多对多关系",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/model.Repo"
+                    }
+                },
+                "updated_at": {
+                    "type": "string"
+                },
+                "updater": {
+                    "type": "string"
+                }
+            }
+        },
+        "model.CloudProvider": {
+            "type": "object",
+            "properties": {
+                "access_key": {
+                    "type": "string"
+                },
+                "config": {
+                    "type": "string"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "description": {
+                    "type": "string"
+                },
+                "display_name": {
+                    "type": "string"
+                },
+                "endpoint": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "provider": {
+                    "type": "string"
+                },
+                "region": {
+                    "type": "string"
+                },
+                "secret_key": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string"
+                },
+                "updated_at": {
+                    "type": "string"
+                }
+            }
+        },
+        "model.DeployTask": {
+            "type": "object",
+            "properties": {
+                "created_at": {
+                    "type": "string"
+                },
+                "deployment_name": {
+                    "type": "string"
+                },
+                "env_id": {
+                    "type": "integer"
+                },
+                "finished_at": {
+                    "type": "string"
+                },
+                "git_ref": {
+                    "type": "string"
+                },
+                "harbor_project": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "image_name": {
+                    "type": "string"
+                },
+                "image_tag": {
+                    "type": "string"
+                },
+                "jenkins_job_name": {
+                    "type": "string"
+                },
+                "k8s_cluster_id": {
+                    "description": "新增字段",
+                    "type": "integer"
+                },
+                "k8s_namespace": {
+                    "type": "string"
+                },
+                "log_path": {
+                    "type": "string"
+                },
+                "project_id": {
+                    "type": "integer"
+                },
+                "started_at": {
+                    "type": "string"
+                },
+                "status": {
+                    "description": "PENDING, BUILDING, PUSHING, DEPLOYING, SUCCESS, FAILED",
+                    "type": "string"
+                },
+                "updated_at": {
+                    "type": "string"
+                }
+            }
+        },
+        "model.DeploymentTemplate": {
+            "type": "object",
+            "properties": {
+                "content": {
+                    "type": "string"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "creator": {
+                    "type": "string"
+                },
+                "description": {
+                    "type": "string"
+                },
+                "display_name": {
+                    "type": "string"
+                },
+                "histories": {
+                    "description": "正确的关联历史记录关系",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/model.DeploymentTemplateHistory"
+                    }
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "parameters": {
+                    "type": "string"
+                },
+                "repos": {
+                    "description": "关联仓库表的多对多关系",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/model.Repo"
+                    }
+                },
+                "status": {
+                    "type": "string"
+                },
+                "template_type": {
+                    "type": "string"
+                },
+                "updated_at": {
+                    "type": "string"
+                },
+                "updater": {
+                    "type": "string"
+                },
+                "variables": {
+                    "type": "string"
+                },
+                "version": {
+                    "type": "string"
+                }
+            }
+        },
+        "model.DeploymentTemplateHistory": {
+            "type": "object",
+            "properties": {
+                "change_reason": {
+                    "type": "string"
+                },
+                "content": {
+                    "type": "string"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "deployment_template_id": {
+                    "type": "integer"
+                },
+                "description": {
+                    "type": "string"
+                },
+                "display_name": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "modifier": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "parameters": {
+                    "type": "string"
+                },
+                "template_type": {
+                    "type": "string"
+                },
+                "variables": {
+                    "type": "string"
+                },
+                "version": {
+                    "type": "string"
+                }
+            }
+        },
+        "model.DockerContainer": {
+            "type": "object",
+            "properties": {
+                "command": {
+                    "type": "string"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "image": {
+                    "type": "string"
+                },
+                "labels": {
+                    "type": "string"
+                },
+                "names": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "ports": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string"
+                }
+            }
+        },
+        "model.Environment": {
+            "type": "object",
+            "properties": {
+                "config": {
+                    "type": "string"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "description": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string"
+                },
+                "type": {
+                    "type": "string"
+                },
+                "updated_at": {
+                    "type": "string"
+                }
+            }
+        },
+        "model.ImageRepository": {
+            "type": "object",
+            "properties": {
+                "created_at": {
+                    "type": "string"
+                },
+                "description": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "password": {
+                    "type": "string"
+                },
+                "updated_at": {
+                    "type": "string"
+                },
+                "url": {
+                    "type": "string"
+                },
+                "username": {
+                    "type": "string"
+                }
+            }
+        },
+        "model.K8SCluster": {
+            "type": "object",
+            "properties": {
+                "api_server": {
+                    "type": "string"
+                },
+                "ca_cert": {
+                    "type": "string"
+                },
+                "client_cert": {
+                    "type": "string"
+                },
+                "client_key": {
+                    "type": "string"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "description": {
+                    "type": "string"
+                },
+                "enabled": {
+                    "type": "boolean"
+                },
+                "environment": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "is_active": {
+                    "type": "boolean"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "namespace": {
+                    "type": "string"
+                },
+                "skip_verify": {
+                    "type": "boolean"
+                },
+                "token": {
+                    "type": "string"
+                },
+                "updated_at": {
+                    "type": "string"
+                },
+                "vendor": {
+                    "type": "string"
+                }
+            }
+        },
+        "model.Repo": {
+            "type": "object",
+            "properties": {
+                "c_name": {
+                    "type": "string"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "deployment_templates": {
+                    "description": "添加与部署模板的多对多关联关系",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/model.DeploymentTemplate"
+                    }
+                },
+                "e_name": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "repo_build_path": {
+                    "type": "string"
+                },
+                "repo_department": {
+                    "type": "string"
+                },
+                "repo_deploy_type": {
+                    "type": "string"
+                },
+                "repo_desc": {
+                    "type": "string"
+                },
+                "repo_id": {
+                    "type": "string"
+                },
+                "repo_language": {
+                    "type": "string"
+                },
+                "repo_manager": {
+                    "type": "string"
+                },
+                "repo_ssh_url": {
+                    "type": "string"
+                },
+                "repo_url": {
+                    "type": "string"
+                },
+                "templates": {
+                    "description": "添加与构建模板的多对多关联关系",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/model.BuildTemplate"
+                    }
+                },
+                "updated_at": {
+                    "type": "string"
+                }
+            }
+        },
+        "model.Server": {
+            "type": "object",
+            "properties": {
+                "auth_type": {
+                    "type": "string"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "description": {
+                    "type": "string"
+                },
+                "host": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "is_active": {
+                    "type": "boolean"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "password": {
+                    "type": "string"
+                },
+                "port": {
+                    "type": "integer"
+                },
+                "private_key": {
+                    "type": "string"
+                },
+                "updated_at": {
+                    "type": "string"
+                },
+                "username": {
+                    "type": "string"
+                }
+            }
+        },
+        "model.TemplateHistory": {
+            "type": "object",
+            "properties": {
+                "created_at": {
+                    "type": "string"
+                },
+                "dockerfile": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "modifier": {
+                    "type": "string"
+                },
+                "pipeline": {
+                    "type": "string"
+                },
+                "template": {
+                    "description": "指定关联字段",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/model.BuildTemplate"
+                        }
+                    ]
+                },
+                "template_id": {
+                    "type": "integer"
+                }
+            }
+        },
+        "types.ContainerExecRequest": {
+            "type": "object",
+            "properties": {
+                "command": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.ContainerExecResponse": {
+            "type": "object",
+            "properties": {
+                "error": {},
+                "output": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.PageResponse": {
+            "type": "object",
+            "properties": {
+                "records": {},
+                "total": {
+                    "type": "integer"
+                }
+            }
+        },
+        "types.PodInfo": {
+            "type": "object",
+            "properties": {
+                "labels": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
+                },
+                "name": {
+                    "type": "string"
+                },
+                "namespace": {
+                    "type": "string"
+                },
+                "node_name": {
+                    "type": "string"
+                },
+                "start_time": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.Response": {
+            "type": "object",
+            "properties": {
+                "code": {
+                    "type": "integer"
+                },
+                "data": {},
+                "message": {
+                    "type": "string"
+                }
+            }
+        }
+    }
+}
