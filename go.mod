@@ -1,4 +1,4 @@
-module github.com/numachen/zebra-cicd
+module github.com/ZebraOps/ZebraCICD
 
 go 1.25.0
 
