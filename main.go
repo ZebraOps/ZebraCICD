@@ -60,6 +60,8 @@ func main() {
 		&model.DeploymentTemplate{},
 		&model.DeploymentTemplateHistory{},
 		&model.ImageRepository{},
+		&model.Application{}, // 添加新的模型
+		&model.ApplicationDeployment{},
 	); err != nil {
 		log.S().Fatalf("auto migrate failed: %v", err)
 	}
@@ -114,6 +116,12 @@ func main() {
 	deploymentTemplateHistoryRepo := handler.NewDeploymentTemplateHistoryRepository(db)
 	deploymentTemplateSvc := service.NewDeploymentTemplateService(deploymentTemplateRepo, deploymentTemplateHistoryRepo)
 
+	// 在服务初始化部分添加
+	// 应用服务相关的 Repository 和 Service
+	appRepo := handler.NewApplicationRepository(db)
+	deployRepo := handler.NewApplicationDeploymentRepository(db)
+	appSvc := service.NewApplicationService(appRepo, deployRepo, db)
+
 	// 注册 K8s、服务器、容器相关路由
 	api.RegisterK8SRoutes(r, k8sSvc)
 	api.RegisterServerRoutes(r, serverSvc)
@@ -123,6 +131,7 @@ func main() {
 	api.RegisterDeploymentTemplateRoutes(r, deploymentTemplateSvc)
 	api.RegisterImageRepositoryRoutes(r, imageRepoSvc)
 	api.RegisterHealthRoutes(r, db)
+	api.RegisterApplicationRoutes(r, appSvc)
 
 	api.RegisterDocsRoutes(r)
 

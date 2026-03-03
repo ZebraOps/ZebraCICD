@@ -17,12 +17,13 @@ type RepoResp struct {
 	RepoDesc       string            `json:"repo_desc"`
 	RepoDeployType string            `json:"repo_deploy_type"`
 	RepoBuildPath  string            `json:"repo_build_path"`
+	Platform       string            `gorm:"size:100;default:'k8s';comment:部署平台(k8s/linux)" json:"platform"`
 	CreatedAt      timeutil.JSONTime `json:"created_at"`
 	UpdatedAt      timeutil.JSONTime `json:"updated_at"`
 }
 type Repo struct {
 	ID             uint              `gorm:"primaryKey" json:"id"`
-	RepoID         string            `gorm:"type:text;not null;comment:仓库ID" json:"repo_id"`
+	RepoNumber     string            `gorm:"type:text;comment:仓库编号" json:"repo_number"`
 	CName          string            `gorm:"size:255;uniqueIndex;not null;comment:中文名称" json:"c_name"`
 	EName          string            `gorm:"size:255;uniqueIndex;not null;comment:英文名称" json:"e_name"`
 	RepoURL        string            `gorm:"type:text;comment:HTTP地址" json:"repo_url"`
@@ -33,11 +34,14 @@ type Repo struct {
 	RepoDesc       string            `gorm:"type:text;comment:描述" json:"repo_desc"`
 	RepoDeployType string            `gorm:"type:text;comment:部署类型" json:"repo_deploy_type"`
 	RepoBuildPath  string            `gorm:"type:text;comment:构建路径" json:"repo_build_path"`
+	Platform       string            `gorm:"size:100;default:'k8s';comment:部署平台(k8s/linux)" json:"platform"`
 	CreatedAt      timeutil.JSONTime `gorm:"type:timestamp;comment:创建时间" json:"created_at"`
 	UpdatedAt      timeutil.JSONTime `gorm:"type:timestamp;comment:更新时间" json:"updated_at"`
 
 	// 添加与构建模板的多对多关联关系
 	Templates []*BuildTemplate `gorm:"many2many:repo_templates;" json:"templates,omitempty"`
+
+	Applications []*Application `gorm:"foreignKey:RepoID" json:"applications,omitempty"`
 
 	// 添加与部署模板的多对多关联关系
 	DeploymentTemplates []*DeploymentTemplate `gorm:"many2many:repo_deployment_templates;" json:"deployment_templates,omitempty"`

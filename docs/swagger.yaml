@@ -1,5 +1,152 @@
 basePath: /
 definitions:
+  model.Application:
+    properties:
+      c_name:
+        type: string
+      created_at:
+        type: string
+      deployments:
+        items:
+          $ref: '#/definitions/model.ApplicationDeployment'
+        type: array
+      description:
+        type: string
+      e_name:
+        type: string
+      health_check_type:
+        type: string
+      health_check_url:
+        type: string
+      id:
+        type: integer
+      listen_port:
+        type: integer
+      repo:
+        allOf:
+        - $ref: '#/definitions/model.Repo'
+        description: 修正外键关系定义
+      repo_id:
+        type: integer
+      updated_at:
+        type: string
+    type: object
+  model.ApplicationDeployment:
+    properties:
+      application:
+        allOf:
+        - $ref: '#/definitions/model.Application'
+        description: 关联关系
+      application_id:
+        type: integer
+      build_source:
+        type: string
+      build_template:
+        $ref: '#/definitions/model.BuildTemplate'
+      build_template_id:
+        type: integer
+      created_at:
+        type: string
+      deployment_template:
+        $ref: '#/definitions/model.DeploymentTemplate'
+      deployment_template_id:
+        type: integer
+      description:
+        type: string
+      environment:
+        $ref: '#/definitions/model.Environment'
+      environment_id:
+        type: integer
+      id:
+        type: integer
+      platform_credential_id:
+        type: integer
+      updated_at:
+        type: string
+    type: object
+  model.ApplicationDeploymentRequest:
+    properties:
+      application_id:
+        type: integer
+      build_source:
+        type: string
+      build_template_id:
+        type: integer
+      deployment_template_id:
+        type: integer
+      description:
+        type: string
+      environment_id:
+        type: integer
+      platform_credential_id:
+        type: integer
+    type: object
+  model.ApplicationDeploymentResponse:
+    properties:
+      application_id:
+        type: integer
+      build_source:
+        type: string
+      build_template_id:
+        type: integer
+      created_at:
+        type: string
+      deployment_template_id:
+        type: integer
+      description:
+        type: string
+      environment_id:
+        type: integer
+      id:
+        type: integer
+      platform_credential_id:
+        type: integer
+      updated_at:
+        type: string
+    type: object
+  model.ApplicationRequest:
+    properties:
+      c_name:
+        type: string
+      description:
+        type: string
+      e_name:
+        type: string
+      health_check_type:
+        type: string
+      health_check_url:
+        type: string
+      listen_port:
+        type: integer
+      repo_id:
+        type: integer
+    type: object
+  model.ApplicationResponse:
+    properties:
+      c_name:
+        type: string
+      created_at:
+        type: string
+      deployment_count:
+        description: 部署配置数量
+        type: integer
+      description:
+        type: string
+      e_name:
+        type: string
+      health_check_type:
+        type: string
+      health_check_url:
+        type: string
+      id:
+        type: integer
+      listen_port:
+        type: integer
+      repo_id:
+        type: integer
+      updated_at:
+        type: string
+    type: object
   model.BuildTemplate:
     properties:
       created_at:
@@ -260,6 +407,10 @@ definitions:
     type: object
   model.Repo:
     properties:
+      applications:
+        items:
+          $ref: '#/definitions/model.Application'
+        type: array
       c_name:
         type: string
       created_at:
@@ -273,6 +424,8 @@ definitions:
         type: string
       id:
         type: integer
+      platform:
+        type: string
       repo_build_path:
         type: string
       repo_department:
@@ -281,11 +434,11 @@ definitions:
         type: string
       repo_desc:
         type: string
-      repo_id:
-        type: string
       repo_language:
         type: string
       repo_manager:
+        type: string
+      repo_number:
         type: string
       repo_ssh_url:
         type: string
@@ -394,6 +547,409 @@ info:
   title: Zebra-CICD API
   version: 0.1.0
 paths:
+  /api/application/template:
+    get:
+      description: 根据应用服务ID获取部署配置列表
+      parameters:
+      - description: 应用服务ID
+        in: query
+        name: application_id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/model.ApplicationDeployment'
+            type: array
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: 获取应用部署配置列表
+      tags:
+      - application-deployments
+    post:
+      consumes:
+      - application/json
+      description: 为应用服务创建部署配置
+      parameters:
+      - description: 部署配置信息
+        in: body
+        name: deployment
+        required: true
+        schema:
+          $ref: '#/definitions/model.ApplicationDeploymentRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/model.ApplicationDeploymentResponse'
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: 创建应用部署配置
+      tags:
+      - application-deployments
+  /api/application/template/{id}:
+    delete:
+      description: 根据ID删除部署配置
+      parameters:
+      - description: 部署配置ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: 删除应用部署配置
+      tags:
+      - application-deployments
+    get:
+      description: 根据部署配置ID获取详细信息
+      parameters:
+      - description: 部署配置ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/model.ApplicationDeploymentResponse'
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: 根据ID获取应用部署配置
+      tags:
+      - application-deployments
+    put:
+      consumes:
+      - application/json
+      description: 根据ID更新部署配置信息
+      parameters:
+      - description: 部署配置ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: 部署配置信息
+        in: body
+        name: deployment
+        required: true
+        schema:
+          $ref: '#/definitions/model.ApplicationDeploymentRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/model.ApplicationDeploymentResponse'
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: 更新应用部署配置
+      tags:
+      - application-deployments
+  /api/application/template/environment:
+    get:
+      description: 根据环境ID获取该环境下所有的部署配置
+      parameters:
+      - description: 环境ID
+        in: query
+        name: environment_id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/model.ApplicationDeployment'
+            type: array
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: 根据环境获取部署配置列表
+      tags:
+      - application-deployments
+  /api/applications:
+    get:
+      description: 根据仓库ID获取应用服务列表
+      parameters:
+      - description: 仓库ID
+        in: query
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/model.ApplicationResponse'
+            type: array
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: 获取应用服务列表
+      tags:
+      - applications
+    post:
+      consumes:
+      - application/json
+      description: 基于仓库创建应用服务
+      parameters:
+      - description: 应用服务信息
+        in: body
+        name: application
+        required: true
+        schema:
+          $ref: '#/definitions/model.ApplicationRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/model.Application'
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: 创建应用服务
+      tags:
+      - applications
+  /api/applications/{id}:
+    delete:
+      description: 根据ID删除应用服务及其相关部署配置
+      parameters:
+      - description: 应用服务ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: 删除应用服务
+      tags:
+      - applications
+    get:
+      description: 根据应用服务ID获取详细信息
+      parameters:
+      - description: 应用服务ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/model.Application'
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: 根据ID获取应用服务
+      tags:
+      - applications
+    put:
+      consumes:
+      - application/json
+      description: 根据ID更新应用服务信息
+      parameters:
+      - description: 应用服务ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: 应用服务信息
+        in: body
+        name: application
+        required: true
+        schema:
+          $ref: '#/definitions/model.ApplicationRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/model.Application'
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: 更新应用服务
+      tags:
+      - applications
   /api/deploys:
     post:
       consumes:
@@ -1203,7 +1759,7 @@ paths:
             type: object
       summary: 获取服务器列表
       tags:
-      - servers
+      - linux-machines
     post:
       consumes:
       - application/json
@@ -1236,7 +1792,7 @@ paths:
             type: object
       summary: 创建服务器
       tags:
-      - servers
+      - linux-machines
   /api/linux-machines/{id}:
     delete:
       description: 根据服务器ID删除服务器
@@ -1275,7 +1831,7 @@ paths:
             type: object
       summary: 删除服务器
       tags:
-      - servers
+      - linux-machines
     get:
       description: 根据服务器ID获取服务器详情
       parameters:
@@ -1311,7 +1867,7 @@ paths:
             type: object
       summary: 根据ID获取服务器
       tags:
-      - servers
+      - linux-machines
     put:
       consumes:
       - application/json
@@ -1355,7 +1911,7 @@ paths:
             type: object
       summary: 更新服务器
       tags:
-      - servers
+      - linux-machines
   /api/linux-machines/{id}/connect:
     post:
       description: 测试连接到服务器
@@ -1388,7 +1944,7 @@ paths:
             type: object
       summary: 连接服务器
       tags:
-      - servers
+      - linux-machines
   /api/linux-machines/{id}/containers:
     get:
       description: 获取服务器上的Docker容器列表
@@ -1421,7 +1977,7 @@ paths:
             type: object
       summary: 获取Docker容器列表
       tags:
-      - servers
+      - linux-machines
   /api/repos:
     get:
       description: 获取所有仓库的列表，支持按中文名称、英文名称、部门、编程语言、项目管理者等条件查询

@@ -15,6 +15,614 @@ const docTemplate = `{
     "host": "{{.Host}}",
     "basePath": "{{.BasePath}}",
     "paths": {
+        "/api/application/template": {
+            "get": {
+                "description": "根据应用服务ID获取部署配置列表",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "application-deployments"
+                ],
+                "summary": "获取应用部署配置列表",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "应用服务ID",
+                        "name": "application_id",
+                        "in": "query",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/model.ApplicationDeployment"
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            },
+            "post": {
+                "description": "为应用服务创建部署配置",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "application-deployments"
+                ],
+                "summary": "创建应用部署配置",
+                "parameters": [
+                    {
+                        "description": "部署配置信息",
+                        "name": "deployment",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/model.ApplicationDeploymentRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/model.ApplicationDeploymentResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/application/template/environment": {
+            "get": {
+                "description": "根据环境ID获取该环境下所有的部署配置",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "application-deployments"
+                ],
+                "summary": "根据环境获取部署配置列表",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "环境ID",
+                        "name": "environment_id",
+                        "in": "query",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/model.ApplicationDeployment"
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/application/template/{id}": {
+            "get": {
+                "description": "根据部署配置ID获取详细信息",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "application-deployments"
+                ],
+                "summary": "根据ID获取应用部署配置",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "部署配置ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/model.ApplicationDeploymentResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            },
+            "put": {
+                "description": "根据ID更新部署配置信息",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "application-deployments"
+                ],
+                "summary": "更新应用部署配置",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "部署配置ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "部署配置信息",
+                        "name": "deployment",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/model.ApplicationDeploymentRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/model.ApplicationDeploymentResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "description": "根据ID删除部署配置",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "application-deployments"
+                ],
+                "summary": "删除应用部署配置",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "部署配置ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/applications": {
+            "get": {
+                "description": "根据仓库ID获取应用服务列表",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "applications"
+                ],
+                "summary": "获取应用服务列表",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "仓库ID",
+                        "name": "id",
+                        "in": "query",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/model.ApplicationResponse"
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            },
+            "post": {
+                "description": "基于仓库创建应用服务",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "applications"
+                ],
+                "summary": "创建应用服务",
+                "parameters": [
+                    {
+                        "description": "应用服务信息",
+                        "name": "application",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/model.ApplicationRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/model.Application"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/applications/{id}": {
+            "get": {
+                "description": "根据应用服务ID获取详细信息",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "applications"
+                ],
+                "summary": "根据ID获取应用服务",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "应用服务ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/model.Application"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            },
+            "put": {
+                "description": "根据ID更新应用服务信息",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "applications"
+                ],
+                "summary": "更新应用服务",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "应用服务ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "应用服务信息",
+                        "name": "application",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/model.ApplicationRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/model.Application"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "description": "根据ID删除应用服务及其相关部署配置",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "applications"
+                ],
+                "summary": "删除应用服务",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "应用服务ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/deploys": {
             "post": {
                 "description": "创建一个新的部署任务，触发Jenkins构建并部署到K8s",
@@ -1188,7 +1796,7 @@ const docTemplate = `{
                     "application/json"
                 ],
                 "tags": [
-                    "servers"
+                    "linux-machines"
                 ],
                 "summary": "获取服务器列表",
                 "parameters": [
@@ -1279,7 +1887,7 @@ const docTemplate = `{
                     "application/json"
                 ],
                 "tags": [
-                    "servers"
+                    "linux-machines"
                 ],
                 "summary": "创建服务器",
                 "parameters": [
@@ -1328,7 +1936,7 @@ const docTemplate = `{
                     "application/json"
                 ],
                 "tags": [
-                    "servers"
+                    "linux-machines"
                 ],
                 "summary": "根据ID获取服务器",
                 "parameters": [
@@ -1385,7 +1993,7 @@ const docTemplate = `{
                     "application/json"
                 ],
                 "tags": [
-                    "servers"
+                    "linux-machines"
                 ],
                 "summary": "更新服务器",
                 "parameters": [
@@ -1448,7 +2056,7 @@ const docTemplate = `{
                     "application/json"
                 ],
                 "tags": [
-                    "servers"
+                    "linux-machines"
                 ],
                 "summary": "删除服务器",
                 "parameters": [
@@ -1507,7 +2115,7 @@ const docTemplate = `{
                     "application/json"
                 ],
                 "tags": [
-                    "servers"
+                    "linux-machines"
                 ],
                 "summary": "连接服务器",
                 "parameters": [
@@ -1557,7 +2165,7 @@ const docTemplate = `{
                     "application/json"
                 ],
                 "tags": [
-                    "servers"
+                    "linux-machines"
                 ],
                 "summary": "获取Docker容器列表",
                 "parameters": [
@@ -3545,6 +4153,233 @@ const docTemplate = `{
         }
     },
     "definitions": {
+        "model.Application": {
+            "type": "object",
+            "properties": {
+                "c_name": {
+                    "type": "string"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "deployments": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/model.ApplicationDeployment"
+                    }
+                },
+                "description": {
+                    "type": "string"
+                },
+                "e_name": {
+                    "type": "string"
+                },
+                "health_check_type": {
+                    "type": "string"
+                },
+                "health_check_url": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "listen_port": {
+                    "type": "integer"
+                },
+                "repo": {
+                    "description": "修正外键关系定义",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/model.Repo"
+                        }
+                    ]
+                },
+                "repo_id": {
+                    "type": "integer"
+                },
+                "updated_at": {
+                    "type": "string"
+                }
+            }
+        },
+        "model.ApplicationDeployment": {
+            "type": "object",
+            "properties": {
+                "application": {
+                    "description": "关联关系",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/model.Application"
+                        }
+                    ]
+                },
+                "application_id": {
+                    "type": "integer"
+                },
+                "build_source": {
+                    "type": "string"
+                },
+                "build_template": {
+                    "$ref": "#/definitions/model.BuildTemplate"
+                },
+                "build_template_id": {
+                    "type": "integer"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "deployment_template": {
+                    "$ref": "#/definitions/model.DeploymentTemplate"
+                },
+                "deployment_template_id": {
+                    "type": "integer"
+                },
+                "description": {
+                    "type": "string"
+                },
+                "environment": {
+                    "$ref": "#/definitions/model.Environment"
+                },
+                "environment_id": {
+                    "type": "integer"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "platform_credential_id": {
+                    "type": "integer"
+                },
+                "updated_at": {
+                    "type": "string"
+                }
+            }
+        },
+        "model.ApplicationDeploymentRequest": {
+            "type": "object",
+            "properties": {
+                "application_id": {
+                    "type": "integer"
+                },
+                "build_source": {
+                    "type": "string"
+                },
+                "build_template_id": {
+                    "type": "integer"
+                },
+                "deployment_template_id": {
+                    "type": "integer"
+                },
+                "description": {
+                    "type": "string"
+                },
+                "environment_id": {
+                    "type": "integer"
+                },
+                "platform_credential_id": {
+                    "type": "integer"
+                }
+            }
+        },
+        "model.ApplicationDeploymentResponse": {
+            "type": "object",
+            "properties": {
+                "application_id": {
+                    "type": "integer"
+                },
+                "build_source": {
+                    "type": "string"
+                },
+                "build_template_id": {
+                    "type": "integer"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "deployment_template_id": {
+                    "type": "integer"
+                },
+                "description": {
+                    "type": "string"
+                },
+                "environment_id": {
+                    "type": "integer"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "platform_credential_id": {
+                    "type": "integer"
+                },
+                "updated_at": {
+                    "type": "string"
+                }
+            }
+        },
+        "model.ApplicationRequest": {
+            "type": "object",
+            "properties": {
+                "c_name": {
+                    "type": "string"
+                },
+                "description": {
+                    "type": "string"
+                },
+                "e_name": {
+                    "type": "string"
+                },
+                "health_check_type": {
+                    "type": "string"
+                },
+                "health_check_url": {
+                    "type": "string"
+                },
+                "listen_port": {
+                    "type": "integer"
+                },
+                "repo_id": {
+                    "type": "integer"
+                }
+            }
+        },
+        "model.ApplicationResponse": {
+            "type": "object",
+            "properties": {
+                "c_name": {
+                    "type": "string"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "deployment_count": {
+                    "description": "部署配置数量",
+                    "type": "integer"
+                },
+                "description": {
+                    "type": "string"
+                },
+                "e_name": {
+                    "type": "string"
+                },
+                "health_check_type": {
+                    "type": "string"
+                },
+                "health_check_url": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "listen_port": {
+                    "type": "integer"
+                },
+                "repo_id": {
+                    "type": "integer"
+                },
+                "updated_at": {
+                    "type": "string"
+                }
+            }
+        },
         "model.BuildTemplate": {
             "type": "object",
             "properties": {
@@ -3937,6 +4772,12 @@ const docTemplate = `{
         "model.Repo": {
             "type": "object",
             "properties": {
+                "applications": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/model.Application"
+                    }
+                },
                 "c_name": {
                     "type": "string"
                 },
@@ -3956,6 +4797,9 @@ const docTemplate = `{
                 "id": {
                     "type": "integer"
                 },
+                "platform": {
+                    "type": "string"
+                },
                 "repo_build_path": {
                     "type": "string"
                 },
@@ -3968,13 +4812,13 @@ const docTemplate = `{
                 "repo_desc": {
                     "type": "string"
                 },
-                "repo_id": {
-                    "type": "string"
-                },
                 "repo_language": {
                     "type": "string"
                 },
                 "repo_manager": {
+                    "type": "string"
+                },
+                "repo_number": {
                     "type": "string"
                 },
                 "repo_ssh_url": {
