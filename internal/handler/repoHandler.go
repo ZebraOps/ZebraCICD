@@ -39,6 +39,23 @@ func (r *RepoRepository) Update(repo *model.Repo) error {
 }
 
 func (r *RepoRepository) Delete(id uint) error {
+	// 1. 先删除关联的 application_deployments（最深的外键约束）
+	if err := r.db.Where("application_id IN (SELECT id FROM applications WHERE repo_id = ?)", id).Delete(&model.ApplicationDeployment{}).Error; err != nil {
+		return err
+	}
+	// 2. 再删除关联的 applications
+	if err := r.db.Where("repo_id = ?", id).Delete(&model.Application{}).Error; err != nil {
+		return err
+	}
+	// 3. 删除多对多关联 repo_templates
+	if err := r.db.Exec("DELETE FROM repo_templates WHERE repo_id = ?", id).Error; err != nil {
+		return err
+	}
+	// 4. 删除多对多关联 repo_deployment_templates
+	if err := r.db.Exec("DELETE FROM repo_deployment_templates WHERE repo_id = ?", id).Error; err != nil {
+		return err
+	}
+	// 5. 最后删除 repo 本身
 	return r.db.Delete(&model.Repo{}, id).Error
 }
 
