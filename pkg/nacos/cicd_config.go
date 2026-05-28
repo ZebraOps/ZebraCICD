@@ -42,7 +42,17 @@ type CICDConfig struct {
 		Enabled        bool `yaml:"enabled"`
 		MaxConnections int  `yaml:"max_connections"`
 	} `yaml:"websocket"`
-	
+
+	Redis struct {
+		Addr     string `yaml:"addr"`
+		Password string `yaml:"password"`
+		DB       int    `yaml:"db"`
+	} `yaml:"redis"`
+
+	Worker struct {
+		Concurrency int `yaml:"concurrency"`
+	} `yaml:"worker"`
+
 	Service struct {
 		Name        string `yaml:"name"`
 		Version     string `yaml:"version"`
@@ -153,6 +163,23 @@ func (l *CICDConfigLoader) LoadHarborURL(defaultValue string) string {
 	return defaultValue
 }
 
+// LoadRedisAddr 加载 Redis 地址
+func (l *CICDConfigLoader) LoadRedisAddr(defaultValue string) string {
+	if l.config != nil && l.config.Redis.Addr != "" {
+		l.logger.Info("✓ 从 Nacos YAML 加载 Redis 地址成功")
+		return l.config.Redis.Addr
+	}
+	return defaultValue
+}
+
+// LoadRedisPassword 加载 Redis 密码
+func (l *CICDConfigLoader) LoadRedisPassword(defaultValue string) string {
+	if l.config != nil {
+		return l.config.Redis.Password
+	}
+	return defaultValue
+}
+
 // LoadAllConfigs 一次性加载所有配置
 func (l *CICDConfigLoader) LoadAllConfigs(cfg map[string]string) {
 	configs := []struct {
@@ -166,6 +193,8 @@ func (l *CICDConfigLoader) LoadAllConfigs(cfg map[string]string) {
 		{"jenkins_url", cfg["jenkins_url"], l.LoadJenkinsURL},
 		{"jenkins_password", cfg["jenkins_password"], l.LoadJenkinsPassword},
 		{"harbor_url", cfg["harbor_url"], l.LoadHarborURL},
+		{"redis_addr", cfg["redis_addr"], l.LoadRedisAddr},
+		{"redis_password", cfg["redis_password"], l.LoadRedisPassword},
 	}
 
 	for _, c := range configs {

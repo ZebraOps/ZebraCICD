@@ -254,7 +254,7 @@ func GetTemplateHistoryHandler(c *gin.Context, svc *service.BuildTemplateService
 // @Failure 500 {object} map[string]string
 // @Router /api/templates/build/{templateId}/repos/{repoId} [post]
 func AssociateRepoWithTemplateHandler(c *gin.Context, svc *service.BuildTemplateService) {
-	templateIDStr := c.Param("templateId")
+	templateIDStr := c.Param("id")
 	repoIDStr := c.Param("repoId")
 	fmt.Println(templateIDStr, repoIDStr, 8888)
 
@@ -290,7 +290,7 @@ func AssociateRepoWithTemplateHandler(c *gin.Context, svc *service.BuildTemplate
 // @Failure 500 {object} map[string]string
 // @Router /api/templates/build/{templateId}/repos/{repoId} [delete]
 func DisassociateRepoWithTemplateHandler(c *gin.Context, svc *service.BuildTemplateService) {
-	templateIDStr := c.Param("templateId")
+	templateIDStr := c.Param("id")
 	repoIDStr := c.Param("repoId")
 
 	templateID, err := strconv.Atoi(templateIDStr)
@@ -348,12 +348,12 @@ func RegisterTemplateRoutes(r *gin.Engine, svc *service.BuildTemplateService) {
 		})
 
 		// 关联仓库和模板
-		g.POST("/:templateId/repos/:repoId", func(c *gin.Context) {
+		g.POST("/:id/repos/:repoId", func(c *gin.Context) {
 			AssociateRepoWithTemplateHandler(c, svc)
 		})
 
 		// 取消仓库和模板关联
-		g.DELETE("/{templateId}/repos/{repoId}", func(c *gin.Context) {
+		g.DELETE("/:id/repos/:repoId", func(c *gin.Context) {
 			DisassociateRepoWithTemplateHandler(c, svc)
 		})
 	}

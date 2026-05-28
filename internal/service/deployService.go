@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -12,6 +11,7 @@ import (
 	"github.com/ZebraOps/ZebraCICD/internal/core"
 	"github.com/ZebraOps/ZebraCICD/internal/model"
 	"github.com/ZebraOps/ZebraCICD/pkg/log"
+	"github.com/ZebraOps/ZebraCICD/pkg/queue"
 	"github.com/samber/lo"
 	"gopkg.in/yaml.v2"
 	"gorm.io/gorm"
@@ -28,13 +28,13 @@ import (
 )
 
 type DeployService struct {
-	db         *gorm.DB
-	cfg        *config.Config
-	gitlab     *core.GitLabClient
-	harbor     *core.HarborClient
-	jenkins    *core.JenkinsClient // 新增Jenkins客户端
-	k8s        *core.K8sClient     // 新增K8s客户端
-	workerStop chan struct{}
+	db          *gorm.DB
+	cfg         *config.Config
+	gitlab      *core.GitLabClient
+	harbor      *core.HarborClient
+	jenkins     *core.JenkinsClient
+	k8s         *core.K8sClient
+	queueClient *queue.Client
 }
 type JenkinsBuildResult struct {
 	JobName     string
@@ -66,41 +66,42 @@ func (s *DeployService) getK8sClient(clusterID uint) (*kubernetes.Clientset, err
 	)
 }
 
-func NewDeployService(db *gorm.DB, cfg *config.Config) *DeployService {
+func NewDeployService(db *gorm.DB, cfg *config.Config, queueClient *queue.Client) *DeployService {
 	gc := core.NewGitLabClient(cfg.GitLabURL, cfg.GitLabToken)
 	hc := core.NewHarborClient(cfg.HarborURL)
-	jc := core.NewJenkinsClient(cfg.JenkinsURL, cfg.JenkinsUser, cfg.JenkinsPass) // 使用公共构造函数
+	jc := core.NewJenkinsClient(cfg.JenkinsURL, cfg.JenkinsUser, cfg.JenkinsPass)
 
 	return &DeployService{
-		db:         db,
-		cfg:        cfg,
-		gitlab:     gc,
-		harbor:     hc,
-		jenkins:    jc,
-		workerStop: make(chan struct{}),
+		db:          db,
+		cfg:         cfg,
+		gitlab:      gc,
+		harbor:      hc,
+		jenkins:     jc,
+		queueClient: queueClient,
 	}
 }
 
 func (s *DeployService) CreateTask(t *model.DeployTask) error {
 	t.Status = "PENDING"
-	timestamp := time.Now().Format("20060102150405")
-	t.ImageTag = fmt.Sprintf("%s", timestamp)
+	t.ImageTag = time.Now().Format("20060102150405")
 
 	if err := s.db.Create(t).Error; err != nil {
 		return err
 	}
 
-	// 启动部署流程
-	go s.processDeploymentTask(t.ID)
-	return nil
+	return s.queueClient.EnqueueDeployTask(t.ID)
 }
 
-// processDeploymentTask 处理部署任务的主要流程
-func (s *DeployService) processDeploymentTask(taskID uint) {
+// ProcessDeploymentTask 由 Asynq worker 调用，执行完整的 Jenkins→Harbor→K8s 流程。
+func (s *DeployService) ProcessDeploymentTask(ctx context.Context, taskID uint) error {
 	var task model.DeployTask
 	if err := s.db.First(&task, taskID).Error; err != nil {
-		log.S().Infof("processDeploymentTask: failed to load task %d: %v", taskID, err)
-		return
+		return fmt.Errorf("load task %d: %w", taskID, err)
+	}
+
+	// 幂等保护：已成功则跳过（Asynq 重试时不重复执行）
+	if task.Status == "SUCCESS" {
+		return nil
 	}
 
 	// 1. 开始构建阶段
@@ -110,23 +111,23 @@ func (s *DeployService) processDeploymentTask(taskID uint) {
 	buildResult, err := s.triggerJenkinsBuild(&task)
 	if err != nil {
 		s.updateTaskStatus(taskID, "FAILED", fmt.Sprintf("Jenkins构建失败: %v", err))
-		return
+		return err
 	}
 
 	// 3. 等待构建完成
-	if !s.waitForJenkinsBuild(buildResult.JobName, buildResult.BuildNumber) {
+	if !s.waitForJenkinsBuild(ctx, buildResult.JobName, buildResult.BuildNumber) {
 		s.updateTaskStatus(taskID, "FAILED", "Jenkins构建失败或超时")
-		return
+		return fmt.Errorf("jenkins build failed or timed out: job=%s build=%d", buildResult.JobName, buildResult.BuildNumber)
 	}
 
 	// 4. 开始推送阶段
 	s.updateTaskStatus(taskID, "PUSHING", "开始推送镜像到Harbor")
-	fmt.Println(task.HarborProject, task.ImageName, task.ImageTag)
+	log.S().Infof("pushing image: project=%s name=%s tag=%s", task.HarborProject, task.ImageName, task.ImageTag)
 
 	// 5. 验证镜像推送
 	if !s.verifyImageInHarbor(task.HarborProject, task.ImageName, task.ImageTag) {
 		s.updateTaskStatus(taskID, "FAILED", "Harbor镜像验证失败")
-		return
+		return fmt.Errorf("harbor image not found: %s/%s:%s", task.HarborProject, task.ImageName, task.ImageTag)
 	}
 
 	// 6. 开始部署阶段
@@ -135,11 +136,12 @@ func (s *DeployService) processDeploymentTask(taskID uint) {
 	// 7. 部署到K8s
 	if err := s.deployToK8s(&task); err != nil {
 		s.updateTaskStatus(taskID, "FAILED", fmt.Sprintf("K8s部署失败: %v", err))
-		return
+		return err
 	}
 
 	// 8. 部署成功
 	s.updateTaskStatus(taskID, "SUCCESS", "部署成功完成")
+	return nil
 }
 
 // triggerJenkinsBuild 触发Jenkins构建
@@ -187,13 +189,15 @@ func (s *DeployService) triggerJenkinsBuild(task *model.DeployTask) (*core.Jenki
 }
 
 // waitForJenkinsBuild 等待Jenkins构建完成
-func (s *DeployService) waitForJenkinsBuild(jobName string, buildNumber int) bool {
-	timeout := time.After(10 * time.Minute) // 设置超时时间
+func (s *DeployService) waitForJenkinsBuild(ctx context.Context, jobName string, buildNumber int) bool {
+	timeout := time.After(10 * time.Minute)
 	ticker := time.NewTicker(10 * time.Second)
 	defer ticker.Stop()
 
 	for {
 		select {
+		case <-ctx.Done():
+			return false
 		case <-timeout:
 			return false
 		case <-ticker.C:
@@ -677,95 +681,6 @@ func (s *DeployService) GetTask(id uint) (*model.DeployTask, error) {
 	return &t, nil
 }
 
-// StartWorker 启动后台工作进程
-func (s *DeployService) StartWorker() {
-	// Start a goroutine to poll for pending tasks and process them
-	ticker := time.NewTicker(s.cfg.WorkerPeriod)
-	go func() {
-		for {
-			select {
-			case <-ticker.C:
-				s.pollAndProcess()
-			case <-s.workerStop:
-				ticker.Stop()
-				return
-			}
-		}
-	}()
-}
-
-// pollAndProcess 轮询并处理待处理的任务
-func (s *DeployService) pollAndProcess() {
-	var tasks []model.DeployTask
-	if err := s.db.Where("status = ?", "PENDING").Find(&tasks).Error; err != nil {
-		log.S().Infof("error querying pending tasks: %v", err)
-		return
-	}
-	for _, t := range tasks {
-		// process in background goroutine per task
-		go s.processTask(t.ID)
-	}
-}
-
-// processTask 处理单个任务
-func (s *DeployService) processTask(id uint) {
-	// load fresh record
-	var t model.DeployTask
-	if err := s.db.First(&t, id).Error; err != nil {
-		log.S().Infof("processTask: failed to load task %d: %v", id, err)
-		return
-	}
-
-	// move to BUILDING
-	s.db.Model(&t).Updates(map[string]interface{}{
-		"status":     "BUILDING",
-		"started_at": time.Now(),
-	})
-
-	// prepare log file
-	logDir := os.TempDir()
-	logFile := filepath.Join(logDir, fmt.Sprintf("deploy_task_%d.log", t.ID))
-	f, _ := os.Create(logFile)
-	defer f.Close()
-
-	// Simulate build step
-	fmt.Fprintf(f, "[%s] Task %d: starting build for ref %s\n", time.Now().Format(time.RFC3339), t.ID, t.GitRef)
-	time.Sleep(3 * time.Second) // simulate
-	// update image_tag if empty (simulate)
-	if t.ImageTag == "" {
-		t.ImageTag = fmt.Sprintf("%s-%d", t.GitRef, time.Now().Unix())
-	}
-	fmt.Fprintf(f, "[%s] Task %d: build finished, image=%s\n", time.Now().Format(time.RFC3339), t.ID, t.ImageTag)
-
-	// Move to DEPLOYING
-	s.db.Model(&t).Updates(map[string]interface{}{
-		"status":    "DEPLOYING",
-		"image_tag": t.ImageTag,
-		"log_path":  logFile,
-	})
-
-	// Simulate deploy step
-	fmt.Fprintf(f, "[%s] Task %d: deploying to env %d\n", time.Now().Format(time.RFC3339), t.ID, t.EnvID)
-	time.Sleep(3 * time.Second) // simulate
-
-	// mark success
-	now := time.Now()
-	updateErr := s.db.Model(&t).Updates(map[string]interface{}{
-		"status":      "SUCCESS",
-		"finished_at": now,
-		"updated_at":  now,
-	}).Error
-	if updateErr != nil {
-		fmt.Fprintf(f, "[%s] Task %d: failed updating status: %v\n", time.Now().Format(time.RFC3339), t.ID, updateErr)
-	} else {
-		fmt.Fprintf(f, "[%s] Task %d: deploy SUCCESS\n", time.Now().Format(time.RFC3339), t.ID)
-	}
-}
-
-// StopWorker 停止后台工作进程
-func (s *DeployService) StopWorker() {
-	close(s.workerStop)
-}
 
 func (s *DeployService) generateJobConfig(template *model.BuildTemplate, targetBranch, repoURL, tag string) string {
 	// 替换换行符并转义反斜杠

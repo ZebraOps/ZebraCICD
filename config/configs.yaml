@@ -23,3 +23,11 @@ logging:
   max_age: 30    # days
   max_backups: 10
   compress: true
+
+redis:
+  addr: "192.168.192.87:6379"
+  password: ""
+  db: 0
+
+worker:
+  concurrency: 3

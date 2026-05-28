@@ -13,11 +13,13 @@ import (
 	"github.com/ZebraOps/ZebraCICD/internal/handler"
 	"github.com/ZebraOps/ZebraCICD/internal/model"
 	"github.com/ZebraOps/ZebraCICD/internal/service"
+	"github.com/ZebraOps/ZebraCICD/internal/worker"
 	"github.com/ZebraOps/ZebraCICD/pkg/log"
 	"github.com/ZebraOps/ZebraCICD/pkg/middleware"
 	nacosClient "github.com/ZebraOps/ZebraCICD/pkg/nacos"
-	"github.com/gin-contrib/cors"
+	"github.com/ZebraOps/ZebraCICD/pkg/queue"
 	"github.com/gin-gonic/gin"
+	"github.com/hibiken/asynq"
 	"go.uber.org/zap"
 
 	"gorm.io/driver/postgres"
@@ -82,6 +84,8 @@ func main() {
 				"jenkins_url":       cfg.JenkinsURL,
 				"jenkins_password":  cfg.JenkinsPass,
 				"harbor_url":        cfg.HarborURL,
+				"redis_addr":        cfg.RedisAddr,
+				"redis_password":    cfg.RedisPassword,
 			}
 			
 			nacosLoader.LoadAllConfigs(configMap)
@@ -93,6 +97,8 @@ func main() {
 			cfg.JenkinsURL = configMap["jenkins_url"]
 			cfg.JenkinsPass = configMap["jenkins_password"]
 			cfg.HarborURL = configMap["harbor_url"]
+			cfg.RedisAddr = configMap["redis_addr"]
+			cfg.RedisPassword = configMap["redis_password"]
 			
 			logger.Info("✓ Nacos 配置加载完成")
 		}
@@ -142,9 +148,13 @@ func main() {
 		log.S().Fatalf("auto migrate failed: %v", err)
 	}
 
+	// 初始化 Asynq 队列客户端
+	queueClient := queue.NewClient(cfg.RedisAddr, cfg.RedisPassword, cfg.RedisDB)
+	defer queueClient.Close()
+
 	// Repositories and services
 	gitlabClient := core.NewGitLabClient(cfg.GitLabURL, cfg.GitLabToken)
-	deploySvc := service.NewDeployService(db, cfg)
+	deploySvc := service.NewDeployService(db, cfg, queueClient)
 	repoRepo := handler.NewRepoRepository(db)
 	repoSvc := service.NewRepoService(repoRepo, gitlabClient, cfg.GitLabURL)
 
@@ -165,14 +175,11 @@ func main() {
 	imageRepoRepo := handler.NewImageRepositoryRepository(db)
 	imageRepoSvc := service.NewImageRepositoryService(imageRepoRepo)
 
-	// Start background worker that picks up pending tasks every interval (service starts its own goroutines)
-	deploySvc.StartWorker()
-
 	// Setup Gin router
 	r := gin.New()
 	r.Use(gin.Recovery())
-	r.Use(cors.Default())                    // 添加CORS支持
-	r.Use(middleware.RequestLogger(log.L())) // 添加请求日志中间件
+	// CORS 由上游 ZebraGateway 统一处理，本服务不再单独设置以避免响应头重复
+	r.Use(middleware.RequestLogger(log.L()))
 
 	// API routes
 	api.RegisterDeployRoutes(r, deploySvc)
@@ -192,13 +199,12 @@ func main() {
 	deploymentTemplateHistoryRepo := handler.NewDeploymentTemplateHistoryRepository(db)
 	deploymentTemplateSvc := service.NewDeploymentTemplateService(deploymentTemplateRepo, deploymentTemplateHistoryRepo)
 
-	// 在服务初始化部分添加
-	// 应用服务相关的 Repository 和 Service
+	// 应用服务
 	appRepo := handler.NewApplicationRepository(db)
 	deployRepo := handler.NewApplicationDeploymentRepository(db)
 	appSvc := service.NewApplicationService(appRepo, deployRepo, db)
 
-	// 注册 K8s、服务器、容器相关路由
+	// 注册路由
 	api.RegisterK8SRoutes(r, k8sSvc)
 	api.RegisterServerRoutes(r, serverSvc)
 	api.RegisterContainerRoutes(r, serverSvc)
@@ -208,8 +214,17 @@ func main() {
 	api.RegisterImageRepositoryRoutes(r, imageRepoSvc)
 	api.RegisterHealthRoutes(r, db)
 	api.RegisterApplicationRoutes(r, appSvc)
-
 	api.RegisterDocsRoutes(r)
+
+	// --- 启动 Asynq worker server ---
+	asynqSrv := queue.NewServer(cfg.RedisAddr, cfg.RedisPassword, cfg.RedisDB, cfg.WorkerConcurrency)
+	deployWorker := worker.NewDeployWorker(deploySvc)
+	mux := asynq.NewServeMux()
+	mux.HandleFunc(queue.TypeDeployTask, deployWorker.HandleDeployTask)
+	if err := asynqSrv.Start(mux); err != nil {
+		log.S().Fatalf("failed to start asynq server: %v", err)
+	}
+	logger.Info("✓ Asynq worker 启动成功", zap.Int("concurrency", cfg.WorkerConcurrency))
 
 	// --- 注册服务到 Nacos ---
 	if nacos != nil {
@@ -271,7 +286,11 @@ func main() {
 				logger.Info("✓ 服务注销成功")
 			}
 		}
-		
+
+		// 关闭 Asynq worker
+		asynqSrv.Shutdown()
+		logger.Info("✓ Asynq worker 已关闭")
+
 		logger.Info("ZebraCICD 已关闭")
 	}
 }

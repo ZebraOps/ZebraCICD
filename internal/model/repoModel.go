@@ -6,7 +6,7 @@ import (
 
 type RepoResp struct {
 	ID             uint              `json:"id"`
-	RepoID         string            `json:"repo_id"`
+	RepoNumber     string            `json:"repo_number"`
 	CName          string            `json:"c_name"`
 	EName          string            `json:"e_name"`
 	RepoURL        string            `json:"repo_url"`

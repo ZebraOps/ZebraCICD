@@ -28,6 +28,12 @@ type Config struct {
 	NacosUsername   string // Nacos 用户名
 	NacosPassword   string // Nacos 密码
 	NacosGroup      string // 配置分组，默认 DEFAULT_GROUP
+
+	// Redis & Asynq 任务队列
+	RedisAddr         string
+	RedisPassword     string
+	RedisDB           int
+	WorkerConcurrency int
 }
 
 func Load() *Config {
@@ -72,6 +78,12 @@ func Load() *Config {
 		workerPeriod = 10 * time.Second
 	}
 
+	// Redis & worker 默认值
+	viper.SetDefault("redis.addr", "127.0.0.1:6379")
+	viper.SetDefault("worker.concurrency", 3)
+	viper.BindEnv("redis.addr", "ZEBRA_REDIS_ADDR")
+	viper.BindEnv("redis.password", "ZEBRA_REDIS_PASSWORD")
+
 	// 设置日志默认值
 	viper.SetDefault("logging.level", "info")
 	viper.SetDefault("logging.encoding", "json")
@@ -101,7 +113,13 @@ func Load() *Config {
 		NacosUsername:   viper.GetString("nacos.username"),
 		NacosPassword:   viper.GetString("nacos.password"),
 		NacosGroup:      viper.GetString("nacos.group"),
-		
+
+		// Redis & Asynq
+		RedisAddr:         viper.GetString("redis.addr"),
+		RedisPassword:     viper.GetString("redis.password"),
+		RedisDB:           viper.GetInt("redis.db"),
+		WorkerConcurrency: viper.GetInt("worker.concurrency"),
+
 		Logging: types.LoggingConfig{
 			Level:            viper.GetString("logging.level"),
 			Encoding:         viper.GetString("logging.encoding"),
