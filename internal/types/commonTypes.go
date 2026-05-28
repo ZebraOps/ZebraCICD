@@ -108,6 +108,11 @@ type DeploymentTemplateQueryConditions struct {
 	Creator      string `json:"creator"`
 }
 
+type LanguageQueryConditions struct {
+	Name   string `json:"name"`
+	Status string `json:"status"`
+}
+
 // ImageRepositoryQueryConditions 镜像仓库查询条件
 type ImageRepositoryQueryConditions struct {
 	Name string `json:"name"` // 仓库名称过滤

@@ -144,6 +144,7 @@ func main() {
 		&model.ImageRepository{},
 		&model.Application{}, // 添加新的模型
 		&model.ApplicationDeployment{},
+		&model.Language{},
 	); err != nil {
 		log.S().Fatalf("auto migrate failed: %v", err)
 	}
@@ -204,6 +205,10 @@ func main() {
 	deployRepo := handler.NewApplicationDeploymentRepository(db)
 	appSvc := service.NewApplicationService(appRepo, deployRepo, db)
 
+	// 开发语言
+	languageRepo := handler.NewLanguageRepository(db)
+	languageSvc := service.NewLanguageService(languageRepo)
+
 	// 注册路由
 	api.RegisterK8SRoutes(r, k8sSvc)
 	api.RegisterServerRoutes(r, serverSvc)
@@ -214,6 +219,7 @@ func main() {
 	api.RegisterImageRepositoryRoutes(r, imageRepoSvc)
 	api.RegisterHealthRoutes(r, db)
 	api.RegisterApplicationRoutes(r, appSvc)
+	api.RegisterLanguageRoutes(r, languageSvc)
 	api.RegisterDocsRoutes(r)
 
 	// --- 启动 Asynq worker server ---
