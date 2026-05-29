@@ -49,18 +49,20 @@ func CreateApplicationHandler(c *gin.Context, svc *service.ApplicationService) {
 // @Router /api/applications [get]
 func ListApplicationsHandler(c *gin.Context, svc *service.ApplicationService) {
 	repoIDStr := c.Query("id")
-	if repoIDStr == "" {
-		types.Error(c, http.StatusBadRequest, "repo_id is required")
-		return
+	department := c.Query("department")
+	language := c.Query("language")
+
+	var repoID uint
+	if repoIDStr != "" {
+		id, err := strconv.Atoi(repoIDStr)
+		if err != nil {
+			types.Error(c, http.StatusBadRequest, "invalid repo_id format")
+			return
+		}
+		repoID = uint(id)
 	}
 
-	repoID, err := strconv.Atoi(repoIDStr)
-	if err != nil {
-		types.Error(c, http.StatusBadRequest, "invalid repo_id format")
-		return
-	}
-
-	applications, err := svc.ListApplicationsByRepoID(uint(repoID))
+	applications, err := svc.ListApplicationsByRepoID(repoID, department, language)
 	if err != nil {
 		types.Error(c, http.StatusInternalServerError, err.Error())
 		return

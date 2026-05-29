@@ -56,6 +56,10 @@ func (r *DeploymentTemplateRepository) ListWithConditions(conditions types.Deplo
 		db = db.Where("creator LIKE ?", "%"+conditions.Creator+"%")
 	}
 
+	if conditions.Department != "" {
+		db = db.Where("department LIKE ?", "%"+conditions.Department+"%")
+	}
+
 	// 获取总数
 	if err := db.Count(&total).Error; err != nil {
 		return nil, 0, err

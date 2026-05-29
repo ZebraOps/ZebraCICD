@@ -33,6 +33,7 @@ type DeploymentTemplate struct {
 	Status       string            `gorm:"size:50;default:'active';comment:状态(active/inactive)" json:"status"`
 	Creator      string            `gorm:"size:100;comment:创建人" json:"creator"`
 	Updater      string            `gorm:"size:100;comment:更新人" json:"updater"`
+	Department   string            `gorm:"size:255;comment:归属部门" json:"department"`
 	CreatedAt    timeutil.JSONTime `gorm:"comment:创建时间" json:"created_at"`
 	UpdatedAt    timeutil.JSONTime `gorm:"comment:更新时间" json:"updated_at"`
 

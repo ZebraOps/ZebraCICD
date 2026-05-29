@@ -79,6 +79,7 @@ func ListBuildTemplatesHandler(c *gin.Context, svc *service.BuildTemplateService
 	// 获取查询参数
 	name := c.Query("name")
 	language := c.Query("language")
+	department := c.Query("department")
 	creator := c.Query("creator")
 	updater := c.Query("updater")
 
@@ -97,7 +98,7 @@ func ListBuildTemplatesHandler(c *gin.Context, svc *service.BuildTemplateService
 	}
 
 	// 调用服务层获取数据
-	templates, total, err := svc.ListTemplates(name, language, creator, updater, page, size)
+	templates, total, err := svc.ListTemplates(name, language, department, creator, updater, page, size)
 	if err != nil {
 		types.Error(c, http.StatusInternalServerError, err.Error())
 		return
@@ -147,6 +148,9 @@ func UpdateBuildTemplateHandler(c *gin.Context, svc *service.BuildTemplateServic
 	}
 	if req.Language != "" {
 		existingTemplate.Language = req.Language
+	}
+	if req.Department != "" {
+		existingTemplate.Department = req.Department
 	}
 	if req.Creator != "" {
 		existingTemplate.Creator = req.Creator

@@ -5,15 +5,16 @@ import (
 )
 
 type BuildTemplateResponse struct {
-	ID         uint              `json:"id"`
-	Name       string            `json:"name"`
-	Language   string            `json:"language"`
-	Creator    string            `json:"creator"`
-	Updater    string            `json:"updater"`
-	Dockerfile string            `json:"dockerfile"`
-	Pipeline   string            `json:"pipeline"`
-	CreatedAt  timeutil.JSONTime `json:"created_at"`
-	UpdatedAt  timeutil.JSONTime `json:"updated_at"`
+	ID         uint              `gorm:"column:id" json:"id"`
+	Name       string            `gorm:"column:name" json:"name"`
+	Language   string            `gorm:"column:language" json:"language"`
+	Department string            `gorm:"column:department" json:"department"`
+	Creator    string            `gorm:"column:creator" json:"creator"`
+	Updater    string            `gorm:"column:updater" json:"updater"`
+	Dockerfile string            `gorm:"column:dockerfile" json:"dockerfile"`
+	Pipeline   string            `gorm:"column:pipeline" json:"pipeline"`
+	CreatedAt  timeutil.JSONTime `gorm:"column:created_at" json:"created_at"`
+	UpdatedAt  timeutil.JSONTime `gorm:"column:updated_at" json:"updated_at"`
 }
 
 type BuildTemplate struct {
@@ -22,6 +23,7 @@ type BuildTemplate struct {
 	Language   string            `gorm:"size:100;not null;comment:开发语言" json:"language"`
 	Creator    string            `gorm:"size:100;comment:创建人" json:"creator"`
 	Updater    string            `gorm:"size:100;comment:修改人" json:"updater"`
+	Department string            `gorm:"size:255;comment:归属部门" json:"department"`
 	Dockerfile string            `gorm:"type:text;comment:Dockerfile" json:"dockerfile"`
 	Pipeline   string            `gorm:"type:text;comment:Pipeline" json:"pipeline"`
 	CreatedAt  timeutil.JSONTime `gorm:"comment:创建时间" json:"created_at"`

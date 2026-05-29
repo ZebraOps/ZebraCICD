@@ -55,6 +55,7 @@ func ListDeploymentTemplatesHandler(c *gin.Context, svc *service.DeploymentTempl
 	templateType := c.Query("template_type")
 	status := c.Query("status")
 	creator := c.Query("creator")
+	department := c.Query("department")
 
 	// 解析分页参数
 	page := 1
@@ -78,6 +79,7 @@ func ListDeploymentTemplatesHandler(c *gin.Context, svc *service.DeploymentTempl
 		TemplateType: templateType,
 		Status:       status,
 		Creator:      creator,
+		Department:   department,
 	}
 
 	// 调用服务层获取分页数据
@@ -182,6 +184,9 @@ func UpdateDeploymentTemplateHandler(c *gin.Context, svc *service.DeploymentTemp
 	}
 	if req.Updater != "" {
 		existingTemplate.Updater = req.Updater
+	}
+	if req.Department != "" {
+		existingTemplate.Department = req.Department
 	}
 	existingTemplate.UpdatedAt = timeutil.Now()
 

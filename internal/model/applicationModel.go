@@ -23,6 +23,8 @@ type ApplicationResponse struct {
 	HealthCheckType string            `gorm:"size:50;comment:健康检查类型(http/tcp/custom)" json:"health_check_type"`
 	HealthCheckURL  string            `gorm:"size:255;comment:健康检查URL" json:"health_check_url"`
 	Description     string            `gorm:"type:text;comment:描述" json:"description"`
+	Department      string            `json:"department"`   // 归属部门（来自关联仓库）
+	Language        string            `json:"language"`     // 开发语言（来自关联仓库）
 	CreatedAt       timeutil.JSONTime `gorm:"comment:创建时间" json:"created_at"`
 	UpdatedAt       timeutil.JSONTime `gorm:"comment:更新时间" json:"updated_at"`
 	DeploymentCount int64             `json:"deployment_count"` // 部署配置数量

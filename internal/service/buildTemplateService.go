@@ -41,8 +41,8 @@ func (s *BuildTemplateService) GetTemplate(id uint) (*model.BuildTemplate, error
 }
 
 // ListTemplates 获取模板列表，支持过滤和分页
-func (s *BuildTemplateService) ListTemplates(name, language, creator, updater string, page, size int) ([]model.BuildTemplateResponse, int64, error) {
-	return s.templateRepo.List(name, language, creator, updater, page, size)
+func (s *BuildTemplateService) ListTemplates(name, language, department, creator, updater string, page, size int) ([]model.BuildTemplateResponse, int64, error) {
+	return s.templateRepo.List(name, language, department, creator, updater, page, size)
 }
 
 // GetTemplateHistoryPaginated 获取模板修改历史（分页）

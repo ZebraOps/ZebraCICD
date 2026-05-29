@@ -106,6 +106,7 @@ type DeploymentTemplateQueryConditions struct {
 	TemplateType string `json:"template_type"`
 	Status       string `json:"status"`
 	Creator      string `json:"creator"`
+	Department   string `json:"department"`
 }
 
 type LanguageQueryConditions struct {

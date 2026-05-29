@@ -5,21 +5,21 @@ import (
 )
 
 type RepoResp struct {
-	ID             uint              `json:"id"`
-	RepoNumber     string            `json:"repo_number"`
-	CName          string            `json:"c_name"`
-	EName          string            `json:"e_name"`
-	RepoURL        string            `json:"repo_url"`
-	RepoSSHURL     string            `json:"repo_ssh_url"`
-	RepoManager    string            `json:"repo_manager"`
-	RepoDepartment string            `json:"repo_department"`
-	RepoLanguage   string            `json:"repo_language"`
-	RepoDesc       string            `json:"repo_desc"`
-	RepoDeployType string            `json:"repo_deploy_type"`
-	RepoBuildPath  string            `json:"repo_build_path"`
-	Platform       string            `gorm:"size:100;default:'k8s';comment:部署平台(k8s/linux)" json:"platform"`
-	CreatedAt      timeutil.JSONTime `json:"created_at"`
-	UpdatedAt      timeutil.JSONTime `json:"updated_at"`
+	ID             uint              `gorm:"column:id" json:"id"`
+	RepoNumber     string            `gorm:"column:repo_number" json:"repo_number"`
+	CName          string            `gorm:"column:c_name" json:"c_name"`
+	EName          string            `gorm:"column:e_name" json:"e_name"`
+	RepoURL        string            `gorm:"column:repo_url" json:"repo_url"`
+	RepoSSHURL     string            `gorm:"column:repo_ssh_url" json:"repo_ssh_url"`
+	RepoManager    string            `gorm:"column:repo_manager" json:"repo_manager"`
+	RepoDepartment string            `gorm:"column:repo_department" json:"repo_department"`
+	RepoLanguage   string            `gorm:"column:repo_language" json:"repo_language"`
+	RepoDesc       string            `gorm:"column:repo_desc" json:"repo_desc"`
+	RepoDeployType string            `gorm:"column:repo_deploy_type" json:"repo_deploy_type"`
+	RepoBuildPath  string            `gorm:"column:repo_build_path" json:"repo_build_path"`
+	Platform       string            `gorm:"column:platform;size:100;default:'k8s';comment:部署平台(k8s/linux)" json:"platform"`
+	CreatedAt      timeutil.JSONTime `gorm:"column:created_at" json:"created_at"`
+	UpdatedAt      timeutil.JSONTime `gorm:"column:updated_at" json:"updated_at"`
 }
 type Repo struct {
 	ID             uint              `gorm:"primaryKey" json:"id"`

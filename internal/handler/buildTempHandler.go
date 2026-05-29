@@ -29,7 +29,7 @@ func (r *BuildTemplateRepository) GetByID(id uint) (*model.BuildTemplate, error)
 }
 
 // List 获取模板列表并返回总数，支持过滤和分页
-func (r *BuildTemplateRepository) List(name, language, creator, updater string, page, size int) ([]model.BuildTemplateResponse, int64, error) {
+func (r *BuildTemplateRepository) List(name, language, department, creator, updater string, page, size int) ([]model.BuildTemplateResponse, int64, error) {
 	var templates []model.BuildTemplateResponse
 	var count int64
 
@@ -44,6 +44,9 @@ func (r *BuildTemplateRepository) List(name, language, creator, updater string, 
 	}
 	if creator != "" {
 		query = query.Where("creator LIKE ?", "%"+creator+"%")
+	}
+	if department != "" {
+		query = query.Where("department LIKE ?", "%"+department+"%")
 	}
 
 	if updater != "" {

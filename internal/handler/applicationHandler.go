@@ -46,32 +46,53 @@ func (r *ApplicationRepository) Delete(id uint) error {
 	return r.db.Delete(&model.Application{}, id).Error
 }
 
-// GetApplicationsWithDeploymentCount 获取应用服务列表并包含部署配置数量
-func (r *ApplicationRepository) GetApplicationsWithDeploymentCount(repoID uint) ([]model.ApplicationResponse, error) {
-	var applications []model.Application
-	if err := r.db.Where("repo_id = ?", repoID).Find(&applications).Error; err != nil {
+// GetApplicationsWithDeploymentCount 获取应用服务列表并包含部署配置数量，支持按部门/语言过滤
+func (r *ApplicationRepository) GetApplicationsWithDeploymentCount(repoID uint, department, language string) ([]model.ApplicationResponse, error) {
+	db := r.db.Table("applications").
+		Select("applications.*, repos.repo_department AS department, repos.repo_language AS language").
+		Joins("LEFT JOIN repos ON repos.id = applications.repo_id")
+
+	if repoID > 0 {
+		db = db.Where("applications.repo_id = ?", repoID)
+	}
+	if department != "" {
+		db = db.Where("repos.repo_department LIKE ?", "%"+department+"%")
+	}
+	if language != "" {
+		db = db.Where("repos.repo_language LIKE ?", "%"+language+"%")
+	}
+
+	type row struct {
+		model.Application
+		Department string
+		Language   string
+	}
+	var rows []row
+	if err := db.Scan(&rows).Error; err != nil {
 		return nil, err
 	}
 
 	var responses []model.ApplicationResponse
-	for _, app := range applications {
+	for _, rr := range rows {
 		var count int64
-		r.db.Model(&model.ApplicationDeployment{}).Where("application_id = ?", app.ID).Count(&count)
+		r.db.Model(&model.ApplicationDeployment{}).Where("application_id = ?", rr.ID).Count(&count)
 
-		response := model.ApplicationResponse{
-			ID:              app.ID,
-			RepoID:          app.RepoID,
-			CName:           app.CName,
-			EName:           app.EName,
-			ListenPort:      app.ListenPort,
-			HealthCheckType: app.HealthCheckType,
-			HealthCheckURL:  app.HealthCheckURL,
-			Description:     app.Description,
-			CreatedAt:       app.CreatedAt,
-			UpdatedAt:       app.UpdatedAt,
+		resp := model.ApplicationResponse{
+			ID:              rr.ID,
+			RepoID:          rr.RepoID,
+			CName:           rr.CName,
+			EName:           rr.EName,
+			ListenPort:      rr.ListenPort,
+			HealthCheckType: rr.HealthCheckType,
+			HealthCheckURL:  rr.HealthCheckURL,
+			Description:     rr.Description,
+			Department:      rr.Department,
+			Language:        rr.Language,
+			CreatedAt:       rr.CreatedAt,
+			UpdatedAt:       rr.UpdatedAt,
 			DeploymentCount: count,
 		}
-		responses = append(responses, response)
+		responses = append(responses, resp)
 	}
 
 	return responses, nil
