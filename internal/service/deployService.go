@@ -681,6 +681,36 @@ func (s *DeployService) GetTask(id uint) (*model.DeployTask, error) {
 	return &t, nil
 }
 
+// ListTasks 分页查询部署任务列表
+func (s *DeployService) ListTasks(status string, projectID uint, page, size int) ([]model.DeployTask, int64, error) {
+	db := s.db.Model(&model.DeployTask{})
+
+	if status != "" {
+		db = db.Where("status = ?", status)
+	}
+	if projectID > 0 {
+		db = db.Where("project_id = ?", projectID)
+	}
+
+	var total int64
+	if err := db.Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+
+	var tasks []model.DeployTask
+	offset := (page - 1) * size
+	if err := db.Order("id DESC").Offset(offset).Limit(size).Find(&tasks).Error; err != nil {
+		return nil, 0, err
+	}
+
+	return tasks, total, nil
+}
+
+// DeleteTask 删除部署任务
+func (s *DeployService) DeleteTask(id uint) error {
+	return s.db.Delete(&model.DeployTask{}, id).Error
+}
+
 
 func (s *DeployService) generateJobConfig(template *model.BuildTemplate, targetBranch, repoURL, tag string) string {
 	// 替换换行符并转义反斜杠

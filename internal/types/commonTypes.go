@@ -114,6 +114,12 @@ type LanguageQueryConditions struct {
 	Status string `json:"status"`
 }
 
+// DeployTaskQueryConditions 部署任务查询条件
+type DeployTaskQueryConditions struct {
+	Status    string `json:"status"`
+	ProjectID uint   `json:"project_id"`
+}
+
 // ImageRepositoryQueryConditions 镜像仓库查询条件
 type ImageRepositoryQueryConditions struct {
 	Name string `json:"name"` // 仓库名称过滤
