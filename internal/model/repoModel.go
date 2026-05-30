@@ -17,7 +17,6 @@ type RepoResp struct {
 	RepoDesc       string            `gorm:"column:repo_desc" json:"repo_desc"`
 	RepoDeployType string            `gorm:"column:repo_deploy_type" json:"repo_deploy_type"`
 	RepoBuildPath  string            `gorm:"column:repo_build_path" json:"repo_build_path"`
-	Platform       string            `gorm:"column:platform;size:100;default:'k8s';comment:部署平台(k8s/linux)" json:"platform"`
 	CreatedAt      timeutil.JSONTime `gorm:"column:created_at" json:"created_at"`
 	UpdatedAt      timeutil.JSONTime `gorm:"column:updated_at" json:"updated_at"`
 }
@@ -34,7 +33,6 @@ type Repo struct {
 	RepoDesc       string            `gorm:"type:text;comment:描述" json:"repo_desc"`
 	RepoDeployType string            `gorm:"type:text;comment:部署类型" json:"repo_deploy_type"`
 	RepoBuildPath  string            `gorm:"type:text;comment:构建路径" json:"repo_build_path"`
-	Platform       string            `gorm:"size:100;default:'k8s';comment:部署平台(k8s/linux)" json:"platform"`
 	CreatedAt      timeutil.JSONTime `gorm:"type:timestamp;comment:创建时间" json:"created_at"`
 	UpdatedAt      timeutil.JSONTime `gorm:"type:timestamp;comment:更新时间" json:"updated_at"`
 
