@@ -166,6 +166,31 @@ func ConnectGitPlatformHandler(c *gin.Context, svc *service.GitPlatformService) 
 	}
 	types.Success(c, gin.H{"message": "connection successful"})
 }
+
+// ListGitPlatformProjectsHandler 获取指定Git平台的项目列表
+func ListGitPlatformProjectsHandler(c *gin.Context, svc *service.GitPlatformService) {
+	id, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		types.Error(c, http.StatusBadRequest, "invalid id format")
+		return
+	}
+	search := c.Query("search")
+	page := 1
+	size := 10
+	if p, e := strconv.Atoi(c.Query("page")); e == nil && p > 0 {
+		page = p
+	}
+	if s, e := strconv.Atoi(c.Query("size")); e == nil && s > 0 {
+		size = s
+	}
+	projects, err := svc.ListPlatformProjects(uint(id), search, page, size)
+	if err != nil {
+		types.Error(c, http.StatusInternalServerError, err.Error())
+		return
+	}
+	types.Success(c, projects)
+}
+
 func RegisterGitPlatformRoutes(r *gin.Engine, svc *service.GitPlatformService) {
 	g := r.Group("/api/git-platforms")
 	{
@@ -186,6 +211,9 @@ func RegisterGitPlatformRoutes(r *gin.Engine, svc *service.GitPlatformService) {
 		})
 		g.POST("/:id/connect", func(c *gin.Context) {
 			ConnectGitPlatformHandler(c, svc)
+		})
+		g.GET("/:id/projects", func(c *gin.Context) {
+			ListGitPlatformProjectsHandler(c, svc)
 		})
 	}
 }

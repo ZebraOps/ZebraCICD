@@ -122,6 +122,12 @@ type GitPlatformQueryConditions struct {
 	Status        string `json:"status"`
 }
 
+// JenkinsPlatformQueryConditions Jenkins平台查询条件
+type JenkinsPlatformQueryConditions struct {
+	Name   string `json:"name"`
+	Status string `json:"status"`
+}
+
 // DeployTaskQueryConditions 部署任务查询条件
 type DeployTaskQueryConditions struct {
 	Status    string `json:"status"`

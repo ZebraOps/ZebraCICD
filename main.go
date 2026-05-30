@@ -146,6 +146,7 @@ func main() {
 		&model.ApplicationDeployment{},
 		&model.Language{},
 		&model.GitPlatform{},
+		&model.JenkinsPlatform{},
 	); err != nil {
 		log.S().Fatalf("auto migrate failed: %v", err)
 	}
@@ -215,6 +216,10 @@ func main() {
 	gitPlatformRepo := handler.NewGitPlatformRepository(db)
 	gitPlatformSvc := service.NewGitPlatformService(gitPlatformRepo)
 
+	// Jenkins平台配置
+	jenkinsPlatformRepo := handler.NewJenkinsPlatformRepository(db)
+	jenkinsPlatformSvc := service.NewJenkinsPlatformService(jenkinsPlatformRepo)
+
 	// 注册路由
 	api.RegisterK8SRoutes(r, k8sSvc)
 	api.RegisterServerRoutes(r, serverSvc)
@@ -227,6 +232,7 @@ func main() {
 	api.RegisterApplicationRoutes(r, appSvc)
 	api.RegisterLanguageRoutes(r, languageSvc)
 	api.RegisterGitPlatformRoutes(r, gitPlatformSvc)
+	api.RegisterJenkinsPlatformRoutes(r, jenkinsPlatformSvc)
 	api.RegisterDocsRoutes(r)
 
 	// --- 启动 Asynq worker server ---

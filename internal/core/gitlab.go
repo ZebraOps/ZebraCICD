@@ -208,3 +208,152 @@ func truncateString(s string, maxLen int) string {
 	}
 	return s[:maxLen] + "..."
 }
+
+// FetchPlatformProjects 从Git平台获取项目列表，支持搜索
+func FetchPlatformProjects(platformURL, platformType, authType, authConfig, search string, page, size int) ([]types.Project, error) {
+	client := &http.Client{Timeout: 15 * time.Second}
+
+	var apiURL string
+	baseURL := normalizeURL(platformURL)
+
+	switch platformType {
+	case "gitlab":
+		apiURL = fmt.Sprintf("%s/api/v4/projects?membership=true&per_page=%d&page=%d", baseURL, size, page)
+		if search != "" {
+			apiURL += "&search=" + url.QueryEscape(search)
+		}
+	case "github":
+		if baseURL == "https://github.com" || baseURL == "http://github.com" {
+			apiURL = fmt.Sprintf("https://api.github.com/user/repos?per_page=%d&page=%d", size, page)
+		} else {
+			apiURL = fmt.Sprintf("%s/api/v3/user/repos?per_page=%d&page=%d", baseURL, size, page)
+		}
+		if search != "" {
+			// GitHub doesn't support search in user/repos; use search/repos endpoint
+			if baseURL == "https://github.com" || baseURL == "http://github.com" {
+				apiURL = fmt.Sprintf("https://api.github.com/search/repositories?q=%s+user:@me&per_page=%d&page=%d", url.QueryEscape(search), size, page)
+			} else {
+				apiURL = fmt.Sprintf("%s/api/v3/search/repositories?q=%s&per_page=%d&page=%d", baseURL, url.QueryEscape(search), size, page)
+			}
+		}
+	case "gitea":
+		apiURL = fmt.Sprintf("%s/api/v1/repos/search?limit=%d&page=%d", baseURL, size, page)
+		if search != "" {
+			apiURL += "&q=" + url.QueryEscape(search)
+		}
+	default:
+		return nil, fmt.Errorf("unsupported platform type: %s", platformType)
+	}
+
+	req, err := http.NewRequest("GET", apiURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("构造请求失败: %v", err)
+	}
+
+	if err := setAuthHeaders(req, platformType, authType, authConfig); err != nil {
+		return nil, fmt.Errorf("解析认证配置失败: %v", err)
+	}
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("请求失败: %v", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("读取响应失败: %v", err)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("请求失败 (HTTP %d): %s", resp.StatusCode, truncateString(string(body), 200))
+	}
+
+	// 根据平台类型解析不同的响应格式
+	switch platformType {
+	case "gitlab":
+		var projects []types.Project
+		if err := json.Unmarshal(body, &projects); err != nil {
+			return nil, fmt.Errorf("解析GitLab项目列表失败: %v", err)
+		}
+		return projects, nil
+
+	case "github":
+		if search != "" && (baseURL == "https://github.com" || baseURL == "http://github.com") {
+			// GitHub search/repositories returns { total_count, items: [...] }
+			var result struct {
+				Items []struct {
+					FullName    string `json:"full_name"`
+					Name        string `json:"name"`
+					HTMLURL     string `json:"html_url"`
+					SSHURL      string `json:"ssh_url"`
+					Description string `json:"description"`
+				} `json:"items"`
+			}
+			if err := json.Unmarshal(body, &result); err != nil {
+				return nil, fmt.Errorf("解析GitHub搜索结果失败: %v", err)
+			}
+			projects := make([]types.Project, len(result.Items))
+			for i, item := range result.Items {
+				projects[i] = types.Project{
+					Path:          item.FullName,
+					Name:          item.Name,
+					HTTPURLToRepo: item.HTMLURL,
+					SSHURLToRepo:  item.SSHURL,
+					Desc:          item.Description,
+				}
+			}
+			return projects, nil
+		}
+		// GitHub user/repos returns array directly
+		var repos []struct {
+			FullName    string `json:"full_name"`
+			Name        string `json:"name"`
+			HTMLURL     string `json:"html_url"`
+			SSHURL      string `json:"ssh_url"`
+			Description string `json:"description"`
+		}
+		if err := json.Unmarshal(body, &repos); err != nil {
+			return nil, fmt.Errorf("解析GitHub仓库列表失败: %v", err)
+		}
+		projects := make([]types.Project, len(repos))
+		for i, repo := range repos {
+			projects[i] = types.Project{
+				Path:          repo.FullName,
+				Name:          repo.Name,
+				HTTPURLToRepo: repo.HTMLURL,
+				SSHURLToRepo:  repo.SSHURL,
+				Desc:          repo.Description,
+			}
+		}
+		return projects, nil
+
+	case "gitea":
+		// Gitea search returns { ok, data: [...] }
+		var result struct {
+			Data []struct {
+				FullName    string `json:"full_name"`
+				Name        string `json:"name"`
+				HTMLURL     string `json:"html_url"`
+				SSHURL      string `json:"ssh_url"`
+				Description string `json:"description"`
+			} `json:"data"`
+		}
+		if err := json.Unmarshal(body, &result); err != nil {
+			return nil, fmt.Errorf("解析Gitea项目列表失败: %v", err)
+		}
+		projects := make([]types.Project, len(result.Data))
+		for i, item := range result.Data {
+			projects[i] = types.Project{
+				Path:          item.FullName,
+				Name:          item.Name,
+				HTTPURLToRepo: item.HTMLURL,
+				SSHURLToRepo:  item.SSHURL,
+				Desc:          item.Description,
+			}
+		}
+		return projects, nil
+	}
+
+	return nil, nil
+}

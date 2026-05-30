@@ -52,3 +52,12 @@ func (s *GitPlatformService) TestGitPlatformConnection(id uint) error {
 	}
 	return core.TestGitPlatformConnectivity(platform.URL, platform.PlatformType, platform.AuthType, platform.AuthConfig)
 }
+
+// ListPlatformProjects 获取指定Git平台的仓库/项目列表
+func (s *GitPlatformService) ListPlatformProjects(id uint, search string, page, size int) ([]types.Project, error) {
+	platform, err := s.repo.GetByID(id)
+	if err != nil {
+		return nil, fmt.Errorf("git platform not found")
+	}
+	return core.FetchPlatformProjects(platform.URL, platform.PlatformType, platform.AuthType, platform.AuthConfig, search, page, size)
+}
