@@ -181,6 +181,7 @@ func main() {
 	r.Use(gin.Recovery())
 	// CORS 由上游 ZebraGateway 统一处理，本服务不再单独设置以避免响应头重复
 	r.Use(middleware.RequestLogger(log.L()))
+	r.Use(middleware.UserIdentity())
 
 	// API routes
 	api.RegisterDeployRoutes(r, deploySvc)

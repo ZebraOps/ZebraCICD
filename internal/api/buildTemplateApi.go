@@ -29,6 +29,10 @@ func CreateBuildTemplateHandler(c *gin.Context, svc *service.BuildTemplateServic
 		types.Error(c, http.StatusBadRequest, err.Error())
 		return
 	}
+	// 自动填充 creator：优先取网关注入的用户名，其次取请求体字段
+	if req.Creator == "" {
+		req.Creator = c.GetString("user_name")
+	}
 	if err := svc.CreateTemplate(&req); err != nil {
 		types.Error(c, http.StatusInternalServerError, err.Error())
 		return
@@ -155,9 +159,8 @@ func UpdateBuildTemplateHandler(c *gin.Context, svc *service.BuildTemplateServic
 	if req.Creator != "" {
 		existingTemplate.Creator = req.Creator
 	}
-	if req.Updater != "" {
-		existingTemplate.Updater = req.Updater
-	}
+	// updater 强制使用网关注入的当前用户名，确保修改人始终为实际操作者
+	existingTemplate.Updater = c.GetString("user_name")
 	if req.Dockerfile != "" {
 		existingTemplate.Dockerfile = req.Dockerfile
 	}

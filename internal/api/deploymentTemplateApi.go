@@ -28,6 +28,10 @@ func CreateDeploymentTemplateHandler(c *gin.Context, svc *service.DeploymentTemp
 		types.Error(c, http.StatusBadRequest, err.Error())
 		return
 	}
+	// 自动填充 creator：优先取网关注入的用户名，其次取请求体字段
+	if req.Creator == "" {
+		req.Creator = c.GetString("user_name")
+	}
 	if err := svc.CreateDeploymentTemplate(&req); err != nil {
 		types.Error(c, http.StatusInternalServerError, err.Error())
 		return
@@ -182,9 +186,8 @@ func UpdateDeploymentTemplateHandler(c *gin.Context, svc *service.DeploymentTemp
 	if req.Status != "" {
 		existingTemplate.Status = req.Status
 	}
-	if req.Updater != "" {
-		existingTemplate.Updater = req.Updater
-	}
+		// updater 强制使用网关注入的当前用户名，确保修改人始终为实际操作者
+		existingTemplate.Updater = c.GetString("user_name")
 	if req.Department != "" {
 		existingTemplate.Department = req.Department
 	}

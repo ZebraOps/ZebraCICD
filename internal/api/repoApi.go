@@ -27,6 +27,10 @@ func CreateRepoHandler(c *gin.Context, svc *service.RepoService) {
 		types.Error(c, http.StatusBadRequest, err.Error())
 		return
 	}
+	// 自动填充 repo_manager：优先取网关注入的用户名
+	if req.RepoManager == "" {
+		req.RepoManager = c.GetString("user_name")
+	}
 	if err := svc.CreateRepo(&req); err != nil {
 		types.Error(c, http.StatusInternalServerError, err.Error())
 		return

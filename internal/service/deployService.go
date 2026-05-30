@@ -105,42 +105,47 @@ func (s *DeployService) ProcessDeploymentTask(ctx context.Context, taskID uint) 
 	}
 
 	// 1. 开始构建阶段
-	s.updateTaskStatus(taskID, "BUILDING", "开始Jenkins构建流程")
+	s.updateTaskStatus(taskID, "BUILDING", "开始Jenkins构建流程", "")
 
 	// 2. 触发Jenkins构建
 	buildResult, err := s.triggerJenkinsBuild(&task)
 	if err != nil {
-		s.updateTaskStatus(taskID, "FAILED", fmt.Sprintf("Jenkins构建失败: %v", err))
+		s.updateTaskStatus(taskID, "FAILED", fmt.Sprintf("Jenkins构建失败: %v", err), err.Error())
 		return err
 	}
 
+	// 保存 Jenkins 构建编号
+	s.db.Model(&model.DeployTask{}).Where("id = ?", taskID).Update("jenkins_build_number", buildResult.BuildNumber)
+
 	// 3. 等待构建完成
 	if !s.waitForJenkinsBuild(ctx, buildResult.JobName, buildResult.BuildNumber) {
-		s.updateTaskStatus(taskID, "FAILED", "Jenkins构建失败或超时")
+		errMsg := "Jenkins构建失败或超时"
+		s.updateTaskStatus(taskID, "FAILED", errMsg, errMsg)
 		return fmt.Errorf("jenkins build failed or timed out: job=%s build=%d", buildResult.JobName, buildResult.BuildNumber)
 	}
 
 	// 4. 开始推送阶段
-	s.updateTaskStatus(taskID, "PUSHING", "开始推送镜像到Harbor")
+	s.updateTaskStatus(taskID, "PUSHING", "开始推送镜像到Harbor", "")
 	log.S().Infof("pushing image: project=%s name=%s tag=%s", task.HarborProject, task.ImageName, task.ImageTag)
 
 	// 5. 验证镜像推送
 	if !s.verifyImageInHarbor(task.HarborProject, task.ImageName, task.ImageTag) {
-		s.updateTaskStatus(taskID, "FAILED", "Harbor镜像验证失败")
+		errMsg := "Harbor镜像验证失败"
+		s.updateTaskStatus(taskID, "FAILED", errMsg, errMsg)
 		return fmt.Errorf("harbor image not found: %s/%s:%s", task.HarborProject, task.ImageName, task.ImageTag)
 	}
 
 	// 6. 开始部署阶段
-	s.updateTaskStatus(taskID, "DEPLOYING", "开始部署到K8s集群")
+	s.updateTaskStatus(taskID, "DEPLOYING", "开始部署到K8s集群", "")
 
 	// 7. 部署到K8s
 	if err := s.deployToK8s(&task); err != nil {
-		s.updateTaskStatus(taskID, "FAILED", fmt.Sprintf("K8s部署失败: %v", err))
+		s.updateTaskStatus(taskID, "FAILED", fmt.Sprintf("K8s部署失败: %v", err), err.Error())
 		return err
 	}
 
 	// 8. 部署成功
-	s.updateTaskStatus(taskID, "SUCCESS", "部署成功完成")
+	s.updateTaskStatus(taskID, "SUCCESS", "部署成功完成", "")
 	return nil
 }
 
@@ -157,24 +162,32 @@ func (s *DeployService) triggerJenkinsBuild(task *model.DeployTask) (*core.Jenki
 		return nil, fmt.Errorf("failed to get repo %d: %v", app.RepoID, err)
 	}
 
-	if len(repo.Templates) == 0 {
+	// 2. 获取构建模板：优先使用任务指定的模板，否则取仓库第一个模板
+	var buildTemplate *model.BuildTemplate
+	if task.BuildTemplateID != nil && *task.BuildTemplateID > 0 {
+		var bt model.BuildTemplate
+		if err := s.db.First(&bt, *task.BuildTemplateID).Error; err != nil {
+			return nil, fmt.Errorf("failed to get build template %d: %v", *task.BuildTemplateID, err)
+		}
+		buildTemplate = &bt
+	} else if len(repo.Templates) > 0 {
+		buildTemplate = repo.Templates[0]
+	}
+
+	if buildTemplate == nil {
 		return nil, fmt.Errorf("no build template found for repo %d", app.RepoID)
 	}
 
-	// 2. 获取第一个构建模板（实际业务中可能需要更复杂的逻辑）
-	buildTemplate := repo.Templates[0]
-
 	// 3. 检查 Jenkins Job 是否存在，不存在则创建
-	jobExists, err := s.jenkins.CheckJobExists(buildTemplate.Name)
+	jobExists, err := s.jenkins.CheckJobExists(task.JenkinsJobName)
 	if err != nil {
 		return nil, fmt.Errorf("failed to check job existence: %v", err)
 	}
 
 	if !jobExists {
-		fmt.Fprintf(os.Stdout, "Jenkins Job %s does not exist, creating...\n", buildTemplate.Name)
-		// 创建新的 Jenkins Job
+		fmt.Fprintf(os.Stdout, "Jenkins Job %s does not exist, creating...\n", task.JenkinsJobName)
 		jobConfig := s.generateJobConfig(buildTemplate, task.GitRef, repo.RepoURL, task.ImageTag)
-		if err := s.jenkins.CreateJob(buildTemplate.Name, jobConfig); err != nil {
+		if err := s.jenkins.CreateJob(task.JenkinsJobName, jobConfig); err != nil {
 			return nil, fmt.Errorf("failed to create job: %v", err)
 		}
 	}
@@ -190,7 +203,7 @@ func (s *DeployService) triggerJenkinsBuild(task *model.DeployTask) (*core.Jenki
 	}
 	fmt.Println("开始触发Jenkins构建")
 
-	return s.jenkins.BuildJob(buildTemplate.Name, params)
+	return s.jenkins.BuildJob(task.JenkinsJobName, params)
 }
 
 // waitForJenkinsBuild 等待Jenkins构建完成
@@ -263,12 +276,21 @@ func (s *DeployService) deployToK8s(task *model.DeployTask) error {
 		return fmt.Errorf("failed to get repo %d: %v", app.RepoID, err)
 	}
 
-	if len(repo.DeploymentTemplates) == 0 {
-		return fmt.Errorf("no deployment template found for repo %d", app.RepoID)
+	// 5. 获取部署模板：优先使用任务指定的模板，否则取仓库第一个模板
+	var deploymentTemplate *model.DeploymentTemplate
+	if task.DeploymentTemplateID != nil && *task.DeploymentTemplateID > 0 {
+		var dt model.DeploymentTemplate
+		if err := s.db.First(&dt, *task.DeploymentTemplateID).Error; err != nil {
+			return fmt.Errorf("failed to get deployment template %d: %v", *task.DeploymentTemplateID, err)
+		}
+		deploymentTemplate = &dt
+	} else if len(repo.DeploymentTemplates) > 0 {
+		deploymentTemplate = repo.DeploymentTemplates[0]
 	}
 
-	// 5. 使用第一个部署模板（实际业务中可能需要更复杂的逻辑）
-	deploymentTemplate := repo.DeploymentTemplates[0]
+	if deploymentTemplate == nil {
+		return fmt.Errorf("no deployment template found for repo %d", app.RepoID)
+	}
 
 	// 6. 解析模板内容并进行参数替换
 	renderedYAML := s.renderTemplate(deploymentTemplate.Content, task)
@@ -667,7 +689,7 @@ func (s *DeployService) applyDeployment(clientset *kubernetes.Clientset, obj *un
 }
 
 // updateTaskStatus 更新任务状态
-func (s *DeployService) updateTaskStatus(taskID uint, status, message string) {
+func (s *DeployService) updateTaskStatus(taskID uint, status, message, errorMsg string) {
 	now := time.Now()
 	updates := map[string]interface{}{
 		"status":     status,
@@ -676,6 +698,9 @@ func (s *DeployService) updateTaskStatus(taskID uint, status, message string) {
 
 	if status == "SUCCESS" || status == "FAILED" {
 		updates["finished_at"] = now
+	}
+	if errorMsg != "" {
+		updates["error_message"] = errorMsg
 	}
 
 	s.db.Model(&model.DeployTask{}).Where("id = ?", taskID).Updates(updates)
@@ -751,6 +776,55 @@ func (s *DeployService) BatchDeleteTasks(ids []uint) error {
 	}
 
 	return s.db.Where("id IN ?", ids).Delete(&model.DeployTask{}).Error
+}
+
+// TemplatesForTask 创建任务时可选的模板信息
+type TemplatesForTask struct {
+	BuildTemplates      []model.BuildTemplate      `json:"build_templates"`
+	DeploymentTemplates []model.DeploymentTemplate `json:"deployment_templates"`
+}
+
+// GetAvailableTemplatesForTask 根据应用ID和环境ID获取可用的构建/部署模板
+func (s *DeployService) GetAvailableTemplatesForTask(appID, envID uint) (*TemplatesForTask, error) {
+	// 1. 获取应用对应的仓库
+	var app model.Application
+	if err := s.db.First(&app, appID).Error; err != nil {
+		return nil, fmt.Errorf("application %d not found: %v", appID, err)
+	}
+
+	// 2. 获取仓库关联的所有模板
+	var repo model.Repo
+	if err := s.db.Preload("Templates").Preload("DeploymentTemplates").First(&repo, app.RepoID).Error; err != nil {
+		return nil, fmt.Errorf("repo %d not found: %v", app.RepoID, err)
+	}
+
+	result := &TemplatesForTask{}
+
+	// 转换构建模板（指针→值）
+	for _, t := range repo.Templates {
+		result.BuildTemplates = append(result.BuildTemplates, *t)
+	}
+
+	// 转换部署模板
+	for _, t := range repo.DeploymentTemplates {
+		result.DeploymentTemplates = append(result.DeploymentTemplates, *t)
+	}
+
+	return result, nil
+}
+
+// GetTaskConsole 获取任务的 Jenkins 控制台输出
+func (s *DeployService) GetTaskConsole(taskID uint) (string, error) {
+	var task model.DeployTask
+	if err := s.db.First(&task, taskID).Error; err != nil {
+		return "", fmt.Errorf("task %d not found: %v", taskID, err)
+	}
+
+	if task.JenkinsJobName == "" || task.JenkinsBuildNumber <= 0 {
+		return "", fmt.Errorf("task %d has no Jenkins build info", taskID)
+	}
+
+	return s.jenkins.GetConsoleOutput(task.JenkinsJobName, task.JenkinsBuildNumber)
 }
 
 

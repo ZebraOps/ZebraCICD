@@ -22,4 +22,12 @@ type DeployTask struct {
 	HarborProject  string `gorm:"size:255;comment:Harbor项目" json:"harbor_project"`
 	ImageName      string `gorm:"size:255;comment:镜像名称" json:"image_name"`
 	DeploymentName string `gorm:"size:255;comment:部署名称" json:"deployment_name"`
+
+	// 模板关联
+	BuildTemplateID      *uint `gorm:"comment:构建模板ID" json:"build_template_id,omitempty"`
+	DeploymentTemplateID *uint `gorm:"comment:部署模板ID" json:"deployment_template_id,omitempty"`
+
+	// Jenkins 构建信息
+	JenkinsBuildNumber int    `gorm:"comment:Jenkins构建编号" json:"jenkins_build_number,omitempty"`
+	ErrorMessage       string `gorm:"type:text;comment:错误信息" json:"error_message,omitempty"`
 }

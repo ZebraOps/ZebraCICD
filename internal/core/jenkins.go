@@ -189,6 +189,37 @@ func (jc *JenkinsClient) DeleteJob(jobName string) error {
 	return nil
 }
 
+// GetConsoleOutput 获取Jenkins构建的控制台输出
+func (jc *JenkinsClient) GetConsoleOutput(jobName string, buildNumber int) (string, error) {
+	if jobName == "" || buildNumber <= 0 {
+		return "", fmt.Errorf("invalid job name or build number")
+	}
+
+	url := fmt.Sprintf("%s/job/%s/%d/consoleText", jc.baseURL, url.QueryEscape(jobName), buildNumber)
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return "", fmt.Errorf("failed to create request: %v", err)
+	}
+	req.SetBasicAuth(jc.username, jc.password)
+
+	resp, err := jc.client.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("failed to get console output: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("get console output failed with status: %d", resp.StatusCode)
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("failed to read console output: %v", err)
+	}
+
+	return string(body), nil
+}
+
 // BuildJob 触发Jenkins构建（带参数）
 func (jc *JenkinsClient) BuildJob(jobName string, params map[string]string) (*JenkinsBuildResult, error) {
 

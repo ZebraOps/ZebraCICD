@@ -4,11 +4,13 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/ZebraOps/ZebraCICD/internal/model"
 	"github.com/ZebraOps/ZebraCICD/internal/service"
 	"github.com/ZebraOps/ZebraCICD/internal/types"
 	"github.com/gin-gonic/gin"
+	"github.com/gorilla/websocket"
 )
 
 // internal/api/deployApi.go 增强版
@@ -19,35 +21,35 @@ import (
 // @Accept json
 // @Produce json
 // @Param task body model.DeployTask true "部署任务信息"
-// @Success 202 {object} map[string]uint
-// @Failure 400 {object} map[string]string
-// @Failure 500 {object} map[string]string
+// @Success 200 {object} types.Response
+// @Failure 400 {object} types.Response
+// @Failure 500 {object} types.Response
 // @Router /api/deploys [post]
 func createDeployTaskHandler(c *gin.Context, svc *service.DeployService) {
 	var req model.DeployTask
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		types.ErrorWithHttpStatus(c, http.StatusBadRequest, 400, err.Error())
 		return
 	}
 
 	// 验证必需字段
 	if req.ProjectID == 0 || req.EnvID == 0 {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "ProjectID and EnvID are required"})
+		types.ErrorWithHttpStatus(c, http.StatusBadRequest, 400, "ProjectID and EnvID are required")
 		return
 	}
 
 	if req.K8sClusterID == 0 {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "K8sClusterID is required"})
+		types.ErrorWithHttpStatus(c, http.StatusBadRequest, 400, "K8sClusterID is required")
 		return
 	}
 
 	if req.JenkinsJobName == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "JenkinsJobName is required"})
+		types.ErrorWithHttpStatus(c, http.StatusBadRequest, 400, "JenkinsJobName is required")
 		return
 	}
 
 	if req.HarborProject == "" || req.ImageName == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "HarborProject and ImageName are required"})
+		types.ErrorWithHttpStatus(c, http.StatusBadRequest, 400, "HarborProject and ImageName are required")
 		return
 	}
 
@@ -64,7 +66,7 @@ func createDeployTaskHandler(c *gin.Context, svc *service.DeployService) {
 	}
 
 	if err := svc.CreateTask(&req); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		types.ErrorWithHttpStatus(c, http.StatusInternalServerError, 500, err.Error())
 		return
 	}
 
@@ -77,21 +79,21 @@ func createDeployTaskHandler(c *gin.Context, svc *service.DeployService) {
 // @Tags deploys
 // @Produce json
 // @Param id path int true "任务ID"
-// @Success 200 {object} model.DeployTask
-// @Failure 404 {object} map[string]string
-// @Failure 500 {object} map[string]string
+// @Success 200 {object} types.Response
+// @Failure 400 {object} types.Response
+// @Failure 404 {object} types.Response
 // @Router /api/deploys/{id} [get]
 func getDeployTaskHandler(c *gin.Context, svc *service.DeployService) {
 	idStr := c.Param("id")
 	id, err := strconv.Atoi(idStr)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id format"})
+		types.ErrorWithHttpStatus(c, http.StatusBadRequest, 400, "invalid id format")
 		return
 	}
 
 	t, err := svc.GetTask(uint(id))
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "task not found"})
+		types.ErrorWithHttpStatus(c, http.StatusNotFound, 404, "task not found")
 		return
 	}
 	types.Success(c, t)
@@ -106,8 +108,8 @@ func getDeployTaskHandler(c *gin.Context, svc *service.DeployService) {
 // @Param project_id query int false "项目ID"
 // @Param page query int false "页码" default(1)
 // @Param size query int false "每页数量" default(20)
-// @Success 200 {object} types.PageResponse
-// @Failure 500 {object} map[string]string
+// @Success 200 {object} types.Response
+// @Failure 500 {object} types.Response
 // @Router /api/deploys [get]
 func listDeployTasksHandler(c *gin.Context, svc *service.DeployService) {
 	status := c.Query("status")
@@ -135,7 +137,7 @@ func listDeployTasksHandler(c *gin.Context, svc *service.DeployService) {
 
 	tasks, total, err := svc.ListTasks(status, projectID, page, size)
 	if err != nil {
-		types.Error(c, http.StatusInternalServerError, err.Error())
+		types.ErrorWithHttpStatus(c, http.StatusInternalServerError, 500, err.Error())
 		return
 	}
 
@@ -148,20 +150,20 @@ func listDeployTasksHandler(c *gin.Context, svc *service.DeployService) {
 // @Tags deploys
 // @Produce json
 // @Param id path int true "任务ID"
-// @Success 200 {object} map[string]string
-// @Failure 400 {object} map[string]string
-// @Failure 500 {object} map[string]string
+// @Success 200 {object} types.Response
+// @Failure 400 {object} types.Response
+// @Failure 500 {object} types.Response
 // @Router /api/deploys/{id} [delete]
 func deleteDeployTaskHandler(c *gin.Context, svc *service.DeployService) {
 	idStr := c.Param("id")
 	id, err := strconv.Atoi(idStr)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id format"})
+		types.ErrorWithHttpStatus(c, http.StatusBadRequest, 400, "invalid id format")
 		return
 	}
 
 	if err := svc.DeleteTask(uint(id)); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		types.ErrorWithHttpStatus(c, http.StatusInternalServerError, 500, err.Error())
 		return
 	}
 
@@ -180,29 +182,160 @@ type batchDeleteRequest struct {
 // @Accept json
 // @Produce json
 // @Param ids body []uint true "任务ID列表"
-// @Success 200 {object} map[string]string
-// @Failure 400 {object} map[string]string
-// @Failure 500 {object} map[string]string
+// @Success 200 {object} types.Response
+// @Failure 400 {object} types.Response
+// @Failure 500 {object} types.Response
 // @Router /api/deploys/batch-delete [post]
 func batchDeleteDeployTasksHandler(c *gin.Context, svc *service.DeployService) {
 	var req batchDeleteRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		types.ErrorWithHttpStatus(c, http.StatusBadRequest, 400, err.Error())
 		return
 	}
 
 	if err := svc.BatchDeleteTasks(req.IDs); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		types.ErrorWithHttpStatus(c, http.StatusInternalServerError, 500, err.Error())
 		return
 	}
 
 	types.Success(c, gin.H{"message": fmt.Sprintf("%d tasks deleted", len(req.IDs))})
 }
 
+// getAvailableTemplatesHandler 获取创建任务时可选的构建/部署模板
+// @Summary 获取创建任务时可选的构建/部署模板
+// @Description 根据应用ID获取可用的构建模板和部署模板列表
+// @Tags deploys
+// @Produce json
+// @Param app_id query int true "应用ID"
+// @Success 200 {object} types.Response
+// @Failure 400 {object} types.Response
+// @Failure 500 {object} types.Response
+// @Router /api/deploys/templates [get]
+func getAvailableTemplatesHandler(c *gin.Context, svc *service.DeployService) {
+	appIDStr := c.Query("app_id")
+	if appIDStr == "" {
+		types.ErrorWithHttpStatus(c, http.StatusBadRequest, 400, "app_id is required")
+		return
+	}
+	appID, err := strconv.Atoi(appIDStr)
+	if err != nil {
+		types.ErrorWithHttpStatus(c, http.StatusBadRequest, 400, "invalid app_id format")
+		return
+	}
+
+	templates, err := svc.GetAvailableTemplatesForTask(uint(appID), 0)
+	if err != nil {
+		types.ErrorWithHttpStatus(c, http.StatusInternalServerError, 500, err.Error())
+		return
+	}
+
+	types.Success(c, templates)
+}
+
+// getDeployTaskConsoleHandler 获取 Jenkins 控制台输出
+// @Summary 获取部署任务Jenkins控制台输出
+// @Description 获取指定部署任务的Jenkins构建控制台日志
+// @Tags deploys
+// @Produce json
+// @Param id path int true "任务ID"
+// @Success 200 {object} types.Response
+// @Failure 400 {object} types.Response
+// @Failure 500 {object} types.Response
+// @Router /api/deploys/{id}/console [get]
+func getDeployTaskConsoleHandler(c *gin.Context, svc *service.DeployService) {
+	idStr := c.Param("id")
+	id, err := strconv.Atoi(idStr)
+	if err != nil {
+		types.ErrorWithHttpStatus(c, http.StatusBadRequest, 400, "invalid id format")
+		return
+	}
+
+	output, err := svc.GetTaskConsole(uint(id))
+	if err != nil {
+		types.ErrorWithHttpStatus(c, http.StatusInternalServerError, 500, err.Error())
+		return
+	}
+
+	types.Success(c, gin.H{"output": output})
+}
+
+// streamDeployTaskConsoleHandler WebSocket 实时推送 Jenkins 构建日志
+// @Summary 流式获取任务控制台日志
+// @Description 通过 WebSocket 实时推送部署任务的 Jenkins 构建日志
+// @Tags deploys
+// @Param id path int true "任务ID"
+// @Router /api/deploys/{id}/console/stream [get]
+func streamDeployTaskConsoleHandler(c *gin.Context, svc *service.DeployService) {
+	idStr := c.Param("id")
+	id, err := strconv.Atoi(idStr)
+	if err != nil {
+		types.ErrorWithHttpStatus(c, http.StatusBadRequest, 400, "invalid id format")
+		return
+	}
+
+	// 升级为 WebSocket
+	conn, err := upgrader.Upgrade(c.Writer, c.Request, nil)
+	if err != nil {
+		return
+	}
+	defer conn.Close()
+
+	// 定期轮询 Jenkins 日志并推送到 WebSocket 客户端
+	var lastOutput string
+	ticker := time.NewTicker(2 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ticker.C:
+			// 获取任务详情以检查状态
+			task, err := svc.GetTask(uint(id))
+			if err != nil {
+				_ = conn.WriteMessage(websocket.TextMessage, []byte(`{"error":"task not found"}`))
+				return
+			}
+
+			// 获取控制台输出
+			output, err := svc.GetTaskConsole(uint(id))
+			if err != nil {
+				// Jenkins 构建可能尚未开始，静默跳过本次推送
+				continue
+			}
+
+			// 仅在内容有变化时推送，避免重复发送
+			if output != lastOutput {
+				msg := fmt.Sprintf(`{"output":"%s","status":"%s"}`, output, task.Status)
+				if err := conn.WriteMessage(websocket.TextMessage, []byte(msg)); err != nil {
+					return // 客户端已断开
+				}
+				lastOutput = output
+			}
+
+			// 任务达到终态时发送关闭消息并退出
+			if task.Status == "SUCCESS" || task.Status == "FAILED" {
+				closeMsg := fmt.Sprintf(`{"output":"%s","status":"%s","finished":true}`, output, task.Status)
+				_ = conn.WriteMessage(websocket.TextMessage, []byte(closeMsg))
+				_ = conn.WriteMessage(websocket.CloseMessage,
+					websocket.FormatCloseMessage(websocket.CloseNormalClosure, "task finished"))
+				return
+			}
+
+		case <-c.Request.Context().Done():
+			// 请求上下文取消（客户端断开或超时）
+			return
+		}
+	}
+}
+
 // RegisterDeployRoutes 注册部署相关路由
 func RegisterDeployRoutes(r *gin.Engine, svc *service.DeployService) {
 	g := r.Group("/api/deploys")
 	{
+		// 获取可用模板
+		g.GET("/templates", func(c *gin.Context) {
+			getAvailableTemplatesHandler(c, svc)
+		})
+
 		// list
 		g.GET("", func(c *gin.Context) {
 			listDeployTasksHandler(c, svc)
@@ -220,6 +353,15 @@ func RegisterDeployRoutes(r *gin.Engine, svc *service.DeployService) {
 
 		g.GET("/:id", func(c *gin.Context) {
 			getDeployTaskHandler(c, svc)
+		})
+
+		g.GET("/:id/console", func(c *gin.Context) {
+			getDeployTaskConsoleHandler(c, svc)
+		})
+
+		// WebSocket 实时日志流
+		g.GET("/:id/console/stream", func(c *gin.Context) {
+			streamDeployTaskConsoleHandler(c, svc)
 		})
 
 		g.DELETE("/:id", func(c *gin.Context) {
