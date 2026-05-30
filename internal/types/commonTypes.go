@@ -114,6 +114,14 @@ type LanguageQueryConditions struct {
 	Status string `json:"status"`
 }
 
+// GitPlatformQueryConditions Git平台查询条件
+type GitPlatformQueryConditions struct {
+	Name          string `json:"name"`
+	PlatformType  string `json:"platform_type"`
+	AuthType      string `json:"auth_type"`
+	Status        string `json:"status"`
+}
+
 // DeployTaskQueryConditions 部署任务查询条件
 type DeployTaskQueryConditions struct {
 	Status    string `json:"status"`

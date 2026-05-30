@@ -145,6 +145,7 @@ func main() {
 		&model.Application{}, // 添加新的模型
 		&model.ApplicationDeployment{},
 		&model.Language{},
+		&model.GitPlatform{},
 	); err != nil {
 		log.S().Fatalf("auto migrate failed: %v", err)
 	}
@@ -210,6 +211,10 @@ func main() {
 	languageRepo := handler.NewLanguageRepository(db)
 	languageSvc := service.NewLanguageService(languageRepo)
 
+	// Git平台配置
+	gitPlatformRepo := handler.NewGitPlatformRepository(db)
+	gitPlatformSvc := service.NewGitPlatformService(gitPlatformRepo)
+
 	// 注册路由
 	api.RegisterK8SRoutes(r, k8sSvc)
 	api.RegisterServerRoutes(r, serverSvc)
@@ -221,6 +226,7 @@ func main() {
 	api.RegisterHealthRoutes(r, db)
 	api.RegisterApplicationRoutes(r, appSvc)
 	api.RegisterLanguageRoutes(r, languageSvc)
+	api.RegisterGitPlatformRoutes(r, gitPlatformSvc)
 	api.RegisterDocsRoutes(r)
 
 	// --- 启动 Asynq worker server ---
