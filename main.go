@@ -185,7 +185,7 @@ func main() {
 
 	// API routes
 	api.RegisterDeployRoutes(r, deploySvc)
-	api.RegisterRepoRoutes(r, repoSvc, buildTemplateSvc)
+	api.RegisterRepoRoutes(r, repoSvc)
 	api.RegisterTemplateRoutes(r, buildTemplateSvc)
 
 	// 环境相关

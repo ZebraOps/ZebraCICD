@@ -38,11 +38,5 @@ type Repo struct {
 	CreatedAt      timeutil.JSONTime `gorm:"type:timestamp;comment:创建时间" json:"created_at"`
 	UpdatedAt      timeutil.JSONTime `gorm:"type:timestamp;comment:更新时间" json:"updated_at"`
 
-	// 添加与构建模板的多对多关联关系
-	Templates []*BuildTemplate `gorm:"many2many:repo_templates;" json:"templates,omitempty"`
-
 	Applications []*Application `gorm:"foreignKey:RepoID" json:"applications,omitempty"`
-
-	// 添加与部署模板的多对多关联关系
-	DeploymentTemplates []*DeploymentTemplate `gorm:"many2many:repo_deployment_templates;" json:"deployment_templates,omitempty"`
 }

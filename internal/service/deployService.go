@@ -36,6 +36,7 @@ type DeployService struct {
 	k8s         *core.K8sClient
 	queueClient *queue.Client
 }
+
 type JenkinsBuildResult struct {
 	JobName     string
 	BuildNumber int
@@ -158,11 +159,11 @@ func (s *DeployService) triggerJenkinsBuild(task *model.DeployTask) (*core.Jenki
 	}
 
 	var repo model.Repo
-	if err := s.db.Preload("Templates").First(&repo, app.RepoID).Error; err != nil {
+	if err := s.db.First(&repo, app.RepoID).Error; err != nil {
 		return nil, fmt.Errorf("failed to get repo %d: %v", app.RepoID, err)
 	}
 
-	// 2. 获取构建模板：优先使用任务指定的模板，否则取仓库第一个模板
+	// 2. 获取构建模板：必须使用任务指定的模板ID
 	var buildTemplate *model.BuildTemplate
 	if task.BuildTemplateID != nil && *task.BuildTemplateID > 0 {
 		var bt model.BuildTemplate
@@ -170,12 +171,10 @@ func (s *DeployService) triggerJenkinsBuild(task *model.DeployTask) (*core.Jenki
 			return nil, fmt.Errorf("failed to get build template %d: %v", *task.BuildTemplateID, err)
 		}
 		buildTemplate = &bt
-	} else if len(repo.Templates) > 0 {
-		buildTemplate = repo.Templates[0]
 	}
 
 	if buildTemplate == nil {
-		return nil, fmt.Errorf("no build template found for repo %d", app.RepoID)
+		return nil, fmt.Errorf("no build template specified for task %d", task.ID)
 	}
 
 	// 3. 检查 Jenkins Job 是否存在，不存在则创建
@@ -251,9 +250,7 @@ func (s *DeployService) verifyImageInHarbor(project, imageName, tag string) bool
 
 // deployToK8s 部署到K8s集群
 func (s *DeployService) deployToK8s(task *model.DeployTask) error {
-
-	// 2. 根据环境配置获取集群信息（假设环境表中有集群ID字段）
-	// 如果环境表没有直接关联集群，需要通过其他方式获取
+	// 2. 根据环境配置获取集群信息
 	var cluster model.K8SCluster
 	if err := s.db.First(&cluster, task.K8sClusterID).Error; err != nil {
 		return fmt.Errorf("failed to get k8s cluster: %v", err)
@@ -272,11 +269,11 @@ func (s *DeployService) deployToK8s(task *model.DeployTask) error {
 	}
 
 	var repo model.Repo
-	if err := s.db.Preload("DeploymentTemplates").First(&repo, app.RepoID).Error; err != nil {
+	if err := s.db.First(&repo, app.RepoID).Error; err != nil {
 		return fmt.Errorf("failed to get repo %d: %v", app.RepoID, err)
 	}
 
-	// 5. 获取部署模板：优先使用任务指定的模板，否则取仓库第一个模板
+	// 5. 获取部署模板：必须使用任务指定的模板ID
 	var deploymentTemplate *model.DeploymentTemplate
 	if task.DeploymentTemplateID != nil && *task.DeploymentTemplateID > 0 {
 		var dt model.DeploymentTemplate
@@ -284,12 +281,10 @@ func (s *DeployService) deployToK8s(task *model.DeployTask) error {
 			return fmt.Errorf("failed to get deployment template %d: %v", *task.DeploymentTemplateID, err)
 		}
 		deploymentTemplate = &dt
-	} else if len(repo.DeploymentTemplates) > 0 {
-		deploymentTemplate = repo.DeploymentTemplates[0]
 	}
 
 	if deploymentTemplate == nil {
-		return fmt.Errorf("no deployment template found for repo %d", app.RepoID)
+		return fmt.Errorf("no deployment template specified for task %d", task.ID)
 	}
 
 	// 6. 解析模板内容并进行参数替换
@@ -359,7 +354,7 @@ func (s *DeployService) applyYAMLResources(clientset *kubernetes.Clientset, yaml
 			return fmt.Errorf("YAML 格式错误: %v", err)
 		}
 
-		// ✅ 关键：在这里统一转换所有 key
+		// 关键：在这里统一转换所有 key
 		rawObj = s.convertMapToStringKey(rawObj).(map[string]interface{})
 
 		kind := s.safeExtractValue(rawObj, "kind")
@@ -405,22 +400,18 @@ func (s *DeployService) applyYAMLResources(clientset *kubernetes.Clientset, yaml
 func (s *DeployService) convertMapToStringKey(input interface{}) interface{} {
 	switch v := input.(type) {
 	case map[interface{}]interface{}:
-		// 关键：处理 interface{} key 的 map
 		m := make(map[string]interface{}, len(v))
 		for key, val := range v {
-			// 强制转换 key 为 string
 			m[fmt.Sprintf("%v", key)] = s.convertMapToStringKey(val)
 		}
 		return m
 	case map[string]interface{}:
-		// 已经是 string key，继续递归处理值
 		m := make(map[string]interface{}, len(v))
 		for key, val := range v {
 			m[key] = s.convertMapToStringKey(val)
 		}
 		return m
 	case []interface{}:
-		// 处理数组中的元素
 		for i, item := range v {
 			v[i] = s.convertMapToStringKey(item)
 		}
@@ -441,7 +432,6 @@ func (s *DeployService) safeExtractValue(obj map[string]interface{}, key string)
 		case int64:
 			return fmt.Sprintf("%d", v)
 		case float64:
-			// 检查是否为整数
 			if v == float64(int64(v)) {
 				return fmt.Sprintf("%.0f", v)
 			}
@@ -462,19 +452,16 @@ func (s *DeployService) safeExtractValue(obj map[string]interface{}, key string)
 	return ""
 }
 
-// extractValueFromMetadata 从 metadata 中提取指定键的值，处理各种可能的格式
+// extractValueFromMetadata 从 metadata 中提取指定键的值
 func (s *DeployService) extractValueFromMetadata(rawObj map[string]interface{}, key string) string {
 	if metadata, exists := rawObj["metadata"]; exists && metadata != nil {
 		fmt.Println("metadata:", metadata)
 		switch v := metadata.(type) {
 		case map[string]interface{}:
-			// 正常情况：metadata 是一个 map
 			return s.safeExtractValue(v, key)
 		case map[interface{}]interface{}:
-			// 特殊情况：metadata 是 map[interface{}]interface{} 类型
 			for metaKey, value := range v {
 				if keyStr, ok := metaKey.(string); ok && keyStr == key {
-					// 找到了指定的键，将其值转换为字符串
 					switch val := value.(type) {
 					case string:
 						return val
@@ -492,7 +479,6 @@ func (s *DeployService) extractValueFromMetadata(rawObj map[string]interface{}, 
 			}
 			return ""
 		case []interface{}:
-			// 异常情况：metadata 是一个数组，尝试从中找到指定键
 			for _, item := range v {
 				if itemMap, ok := item.(map[string]interface{}); ok {
 					if _, exists := itemMap[key]; exists {
@@ -502,7 +488,6 @@ func (s *DeployService) extractValueFromMetadata(rawObj map[string]interface{}, 
 			}
 			return ""
 		case string:
-			// 如果 metadata 被错误地解析为字符串，尝试再次解析
 			var parsedMetadata map[string]interface{}
 			if err := yaml.Unmarshal([]byte(v), &parsedMetadata); err == nil {
 				return s.safeExtractValue(parsedMetadata, key)
@@ -518,11 +503,9 @@ func (s *DeployService) extractValueFromMetadata(rawObj map[string]interface{}, 
 
 // applyNamespace 创建或更新Namespace
 func (s *DeployService) applyNamespace(clientset *kubernetes.Clientset, nsName string) error {
-	// 检查Namespace是否存在
 	_, err := clientset.CoreV1().Namespaces().Get(context.TODO(), nsName, metav1.GetOptions{})
 	if err != nil {
 		if errors.IsNotFound(err) {
-			// 创建Namespace
 			_, err = clientset.CoreV1().Namespaces().Create(context.TODO(), &corev1.Namespace{
 				ObjectMeta: metav1.ObjectMeta{
 					Name: nsName,
@@ -534,26 +517,21 @@ func (s *DeployService) applyNamespace(clientset *kubernetes.Clientset, nsName s
 			log.S().Infof("Created namespace: %s", nsName)
 			return nil
 		}
-		// 其他错误，如权限不足等
 		return fmt.Errorf("failed to get namespace %s: %v", nsName, err)
 	}
 
-	// Namespace 已存在，记录日志并跳过
 	log.S().Infof("Namespace %s already exists, skipping creation", nsName)
 	return nil
 }
 
 // applyConfigMap 使用 Server-Side Apply 创建或更新 ConfigMap
 func (s *DeployService) applyConfigMap(name string, ns string, clientset *kubernetes.Clientset, obj *unstructured.Unstructured) error {
-
-	// ✅ 步骤1：安全转换
 	configMap := &corev1.ConfigMap{}
 	if err := runtime.DefaultUnstructuredConverter.FromUnstructured(obj.UnstructuredContent(), configMap); err != nil {
 		log.S().Errorf("Failed to convert unstructured object to ConfigMap: %v", err)
 		return fmt.Errorf("failed to convert unstructured object to ConfigMap: %v", err)
 	}
 
-	// ✅ 步骤2：确保 namespace 和 name 正确
 	if configMap.Namespace == "" {
 		configMap.Namespace = ns
 	}
@@ -561,7 +539,6 @@ func (s *DeployService) applyConfigMap(name string, ns string, clientset *kubern
 		configMap.Name = name
 	}
 
-	// ✅ 步骤4：应用资源
 	applyConfig := corev1apply.ConfigMap(configMap.Name, configMap.Namespace).
 		WithData(configMap.Data).
 		WithBinaryData(configMap.BinaryData)
@@ -585,12 +562,11 @@ func (s *DeployService) applyService(clientset *kubernetes.Clientset, obj *unstr
 		return err
 	}
 
-	// 使用 Server-Side Apply
 	applyConfig := corev1apply.Service(service.Name, service.Namespace).
 		WithSpec(corev1apply.ServiceSpec().
 			WithPorts(lo.Map(service.Spec.Ports, func(p corev1.ServicePort, _ int) *corev1apply.ServicePortApplyConfiguration {
 				return corev1apply.ServicePort().WithPort(p.Port).WithTargetPort(p.TargetPort)
-			})...). // 注意这里的 ...
+			})...).
 			WithSelector(service.Spec.Selector))
 
 	_, err := clientset.CoreV1().Services(service.Namespace).Apply(context.TODO(), applyConfig, metav1.ApplyOptions{
@@ -602,7 +578,6 @@ func (s *DeployService) applyService(clientset *kubernetes.Clientset, obj *unstr
 
 // applyDeployment 使用 Server-Side Apply 部署 Deployment
 func (s *DeployService) applyDeployment(clientset *kubernetes.Clientset, obj *unstructured.Unstructured, task *model.DeployTask) error {
-	// 转换为 Deployment 对象
 	deployment := &appsv1.Deployment{}
 	if err := runtime.DefaultUnstructuredConverter.FromUnstructured(obj.UnstructuredContent(), deployment); err != nil {
 		return fmt.Errorf("failed to convert unstructured object to Deployment: %v", err)
@@ -623,10 +598,9 @@ func (s *DeployService) applyDeployment(clientset *kubernetes.Clientset, obj *un
 	if deployment.Spec.Replicas != nil {
 		replicas = *deployment.Spec.Replicas
 	} else {
-		replicas = 1 // 默认副本数为 1
+		replicas = 1
 	}
 
-	// 使用 lo.Map 并将结果转换为指针类型切片
 	matchExpressions := lo.Map(deployment.Spec.Selector.MatchExpressions,
 		func(expr metav1.LabelSelectorRequirement, index int) *metav1apply.LabelSelectorRequirementApplyConfiguration {
 			return metav1apply.LabelSelectorRequirement().
@@ -637,7 +611,7 @@ func (s *DeployService) applyDeployment(clientset *kubernetes.Clientset, obj *un
 
 	selector := metav1apply.LabelSelector().
 		WithMatchLabels(deployment.Spec.Selector.MatchLabels).
-		WithMatchExpressions(matchExpressions...) // 直接传递指针切片
+		WithMatchExpressions(matchExpressions...)
 
 	containers := lo.Map(deployment.Spec.Template.Spec.Containers,
 		func(c corev1.Container, index int) *corev1apply.ContainerApplyConfiguration {
@@ -670,15 +644,14 @@ func (s *DeployService) applyDeployment(clientset *kubernetes.Clientset, obj *un
 			WithTemplate(corev1apply.PodTemplateSpec().
 				WithLabels(deployment.Spec.Template.Labels).
 				WithSpec(corev1apply.PodSpec().
-					WithContainers(containers...), // 直接传递指针切片
+					WithContainers(containers...),
 				),
 			),
 		)
 
-	// 使用 Server-Side Apply 提交资源
 	_, err := clientset.AppsV1().Deployments(deployment.Namespace).Apply(context.TODO(), applyConfig, metav1.ApplyOptions{
-		FieldManager: "zebra-cicd-controller", // 设置字段管理者
-		Force:        true,                    // 强制覆盖冲突字段
+		FieldManager: "zebra-cicd-controller",
+		Force:        true,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to apply Deployment %s in namespace %s: %v", deployment.Name, deployment.Namespace, err)
@@ -744,7 +717,6 @@ func (s *DeployService) ListTasks(status string, projectID uint, page, size int)
 // DeleteTask 删除部署任务，同时尝试删除关联的Jenkins Job
 func (s *DeployService) DeleteTask(id uint) error {
 	var task model.DeployTask
-	// 先查出任务，获取 Jenkins Job 名称
 	if err := s.db.First(&task, id).Error; err != nil {
 		return err
 	}
@@ -753,7 +725,6 @@ func (s *DeployService) DeleteTask(id uint) error {
 	if task.JenkinsJobName != "" && s.jenkins != nil {
 		if err := s.jenkins.DeleteJob(task.JenkinsJobName); err != nil {
 			log.S().Warnf("failed to delete Jenkins job '%s': %v", task.JenkinsJobName, err)
-			// 继续删除数据库记录，不因 Jenkins 失败而阻断
 		}
 	}
 
@@ -785,29 +756,39 @@ type TemplatesForTask struct {
 }
 
 // GetAvailableTemplatesForTask 根据应用ID和环境ID获取可用的构建/部署模板
+// 模板与应用关联，优先返回关联模板，若无关联则返回所有模板
 func (s *DeployService) GetAvailableTemplatesForTask(appID, envID uint) (*TemplatesForTask, error) {
-	// 1. 获取应用对应的仓库
+	result := &TemplatesForTask{
+		BuildTemplates:      make([]model.BuildTemplate, 0),
+		DeploymentTemplates: make([]model.DeploymentTemplate, 0),
+	}
+
+	// 优先通过应用关联获取模板
 	var app model.Application
-	if err := s.db.First(&app, appID).Error; err != nil {
+	if err := s.db.Preload("BuildTemplates").Preload("DeploymentTemplates").First(&app, appID).Error; err != nil {
 		return nil, fmt.Errorf("application %d not found: %v", appID, err)
 	}
 
-	// 2. 获取仓库关联的所有模板
-	var repo model.Repo
-	if err := s.db.Preload("Templates").Preload("DeploymentTemplates").First(&repo, app.RepoID).Error; err != nil {
-		return nil, fmt.Errorf("repo %d not found: %v", app.RepoID, err)
+	if len(app.BuildTemplates) > 0 {
+		result.BuildTemplates = app.BuildTemplates
+	} else {
+		// 无关联则返回所有构建模板
+		var allBuilds []model.BuildTemplate
+		if err := s.db.Order("id ASC").Find(&allBuilds).Error; err != nil {
+			return nil, fmt.Errorf("failed to list build templates: %v", err)
+		}
+		result.BuildTemplates = allBuilds
 	}
 
-	result := &TemplatesForTask{}
-
-	// 转换构建模板（指针→值）
-	for _, t := range repo.Templates {
-		result.BuildTemplates = append(result.BuildTemplates, *t)
-	}
-
-	// 转换部署模板
-	for _, t := range repo.DeploymentTemplates {
-		result.DeploymentTemplates = append(result.DeploymentTemplates, *t)
+	if len(app.DeploymentTemplates) > 0 {
+		result.DeploymentTemplates = app.DeploymentTemplates
+	} else {
+		// 无关联则返回所有激活的部署模板
+		var allDeploys []model.DeploymentTemplate
+		if err := s.db.Where("status = ?", "active").Order("id ASC").Find(&allDeploys).Error; err != nil {
+			return nil, fmt.Errorf("failed to list deployment templates: %v", err)
+		}
+		result.DeploymentTemplates = allDeploys
 	}
 
 	return result, nil
@@ -827,24 +808,19 @@ func (s *DeployService) GetTaskConsole(taskID uint) (string, error) {
 	return s.jenkins.GetConsoleOutput(task.JenkinsJobName, task.JenkinsBuildNumber)
 }
 
-
 func (s *DeployService) generateJobConfig(template *model.BuildTemplate, targetBranch, repoURL, tag string) string {
-	// 替换换行符并转义反斜杠
 	pipelineContent := strings.ReplaceAll(template.Pipeline, "\\n", "\n")
 	pipelineContent = strings.ReplaceAll(pipelineContent, "\r\n", "\n")
 	pipelineContent = strings.ReplaceAll(pipelineContent, "\\", "")
 	pipelineContent = strings.ReplaceAll(pipelineContent, "\r", "\n")
 
-	// ✅ 对 Groovy 脚本进行 CDATA 转义
 	escapedPipeline := escapeXMLContent(pipelineContent)
 
-	// ✅ 核心修复：添加参数定义
 	config := fmt.Sprintf(`<?xml version='1.1' encoding='UTF-8'?>
 <flow-definition plugin="workflow-job@2.40">
 	<description>Generated by Zebra CI/CD for %s</description>
 	<keepDependencies>false</keepDependencies>
 	<properties>
-		<!-- ✅ 参数定义：定义 TARGET_BRANCH, Repo_URL, Tag 三个参数 -->
 		<hudson.model.ParametersDefinitionProperty>
 			<parameterDefinitions>
 				<hudson.model.StringParameterDefinition>
@@ -890,10 +866,10 @@ func (s *DeployService) generateJobConfig(template *model.BuildTemplate, targetB
 	return config
 }
 
-// ✅ XML 转义函数
+// escapeXMLContent XML 转义函数
 func escapeXMLContent(content string) string {
 	replacer := strings.NewReplacer(
-		"]]>", "]]]]><![CDATA[>", // 处理 CDATA 结束符
+		"]]>", "]]]]><![CDATA[>",
 	)
 	return replacer.Replace(content)
 }

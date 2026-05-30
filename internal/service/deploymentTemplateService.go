@@ -46,7 +46,6 @@ func (s *DeploymentTemplateService) CreateDeploymentTemplate(template *model.Dep
 
 // GetDeploymentTemplateByID 根据ID获取部署模板
 func (s *DeploymentTemplateService) GetDeploymentTemplateByID(ctx context.Context, id uint) (*model.DeploymentTemplate, error) {
-	// 假设 tracer 已经通过某种方式获取（如从上下文或依赖注入）
 	template, err := s.templateRepo.GetByID(ctx, id)
 	if err != nil {
 		return nil, err
@@ -96,19 +95,19 @@ func (s *DeploymentTemplateService) DeleteDeploymentTemplate(id uint) error {
 	return s.templateRepo.Delete(id)
 }
 
-// AddRepoToTemplate 添加仓库到部署模板关联
-func (s *DeploymentTemplateService) AddRepoToTemplate(templateID, repoID uint) error {
-	return s.templateRepo.AddRepoToTemplate(templateID, repoID)
+// AddApplicationToTemplate 添加应用到部署模板关联
+func (s *DeploymentTemplateService) AddApplicationToTemplate(templateID, applicationID uint) error {
+	return s.templateRepo.AddApplicationToTemplate(templateID, applicationID)
 }
 
-// RemoveRepoFromTemplate 从部署模板移除仓库关联
-func (s *DeploymentTemplateService) RemoveRepoFromTemplate(templateID, repoID uint) error {
-	return s.templateRepo.RemoveRepoFromTemplate(templateID, repoID)
+// RemoveApplicationFromTemplate 从部署模板移除应用关联
+func (s *DeploymentTemplateService) RemoveApplicationFromTemplate(templateID, applicationID uint) error {
+	return s.templateRepo.RemoveApplicationFromTemplate(templateID, applicationID)
 }
 
-// GetReposByTemplateID 根据部署模板ID获取关联的仓库列表
-func (s *DeploymentTemplateService) GetReposByTemplateID(templateID uint) ([]model.Repo, error) {
-	return s.templateRepo.GetReposByTemplateID(templateID)
+// GetApplicationsByTemplateID 根据部署模板ID获取关联的应用列表
+func (s *DeploymentTemplateService) GetApplicationsByTemplateID(templateID uint) ([]model.ApplicationResponse, error) {
+	return s.templateRepo.GetApplicationsByTemplateID(templateID)
 }
 
 // GetDeploymentTemplateHistory 获取部署模板历史记录

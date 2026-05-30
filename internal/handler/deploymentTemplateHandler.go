@@ -85,7 +85,11 @@ func (r *DeploymentTemplateRepository) Delete(id uint) error {
 		if err := tx.Where("deployment_template_id = ?", id).Delete(&model.DeploymentTemplateHistory{}).Error; err != nil {
 			return err
 		}
-		// 2. 删除部署模板（硬删除）
+		// 2. 删除多对多关联 deployment_template_applications
+		if err := tx.Exec("DELETE FROM deployment_template_applications WHERE deployment_template_id = ?", id).Error; err != nil {
+			return err
+		}
+		// 3. 删除部署模板（硬删除）
 		if err := tx.Where("id = ?", id).Delete(&model.DeploymentTemplate{}).Error; err != nil {
 			return err
 		}
@@ -94,26 +98,54 @@ func (r *DeploymentTemplateRepository) Delete(id uint) error {
 	})
 }
 
-// AddRepoToTemplate 添加仓库到部署模板关联
-func (r *DeploymentTemplateRepository) AddRepoToTemplate(templateID, repoID uint) error {
+// AddApplicationToTemplate 添加应用到部署模板关联
+func (r *DeploymentTemplateRepository) AddApplicationToTemplate(templateID, applicationID uint) error {
 	template := &model.DeploymentTemplate{ID: templateID}
-	repo := &model.Repo{ID: repoID}
-	return r.db.Model(template).Association("Repos").Append(repo)
+	app := &model.Application{ID: applicationID}
+	return r.db.Model(template).Association("Applications").Append(app)
 }
 
-// RemoveRepoFromTemplate 从部署模板移除仓库关联
-func (r *DeploymentTemplateRepository) RemoveRepoFromTemplate(templateID, repoID uint) error {
+// RemoveApplicationFromTemplate 从部署模板移除应用关联
+func (r *DeploymentTemplateRepository) RemoveApplicationFromTemplate(templateID, applicationID uint) error {
 	template := &model.DeploymentTemplate{ID: templateID}
-	repo := &model.Repo{ID: repoID}
-	return r.db.Model(template).Association("Repos").Delete(repo)
+	app := &model.Application{ID: applicationID}
+	return r.db.Model(template).Association("Applications").Delete(app)
 }
 
-// GetReposByTemplateID 根据部署模板ID获取关联的仓库列表
-func (r *DeploymentTemplateRepository) GetReposByTemplateID(templateID uint) ([]model.Repo, error) {
+// GetApplicationsByTemplateID 根据部署模板ID获取关联的应用列表
+func (r *DeploymentTemplateRepository) GetApplicationsByTemplateID(templateID uint) ([]model.ApplicationResponse, error) {
 	var template model.DeploymentTemplate
-	if err := r.db.Preload("Repos").First(&template, templateID).Error; err != nil {
+	if err := r.db.Preload("Applications").First(&template, templateID).Error; err != nil {
 		return nil, err
 	}
 
-	return template.Repos, nil
+	if len(template.Applications) == 0 {
+		return []model.ApplicationResponse{}, nil
+	}
+
+	var responses []model.ApplicationResponse
+	for _, app := range template.Applications {
+		var repo model.Repo
+		if err := r.db.First(&repo, app.RepoID).Error; err != nil {
+			repo = model.Repo{}
+		}
+
+		resp := model.ApplicationResponse{
+			ID:              app.ID,
+			RepoID:          app.RepoID,
+			CName:           app.CName,
+			EName:           app.EName,
+			ListenPort:      app.ListenPort,
+			HealthCheckType: app.HealthCheckType,
+			HealthCheckURL:  app.HealthCheckURL,
+			Description:     app.Description,
+			CreatedAt:       app.CreatedAt,
+			UpdatedAt:       app.UpdatedAt,
+			Department:      repo.RepoDepartment,
+			Language:        repo.RepoLanguage,
+		}
+		responses = append(responses, resp)
+	}
+
+	return responses, nil
 }

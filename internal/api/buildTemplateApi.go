@@ -1,7 +1,6 @@
 package api
 
 import (
-	"fmt"
 	"net/http"
 	"strconv"
 
@@ -13,16 +12,6 @@ import (
 )
 
 // CreateBuildTemplateHandler 创建构建模板处理函数
-// @Summary 创建构建模板
-// @Description 创建一个新的构建模板
-// @Tags buildTemplates
-// @Accept json
-// @Produce json
-// @Param template body model.BuildTemplate true "构建模板信息"
-// @Success 201 {object} model.BuildTemplate
-// @Failure 400 {object} map[string]string
-// @Failure 500 {object} map[string]string
-// @Router /api/templates/build [post]
 func CreateBuildTemplateHandler(c *gin.Context, svc *service.BuildTemplateService) {
 	var req model.BuildTemplate
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -41,15 +30,6 @@ func CreateBuildTemplateHandler(c *gin.Context, svc *service.BuildTemplateServic
 }
 
 // GetBuildTemplateHandler 根据ID获取构建模板处理函数
-// @Summary 根据ID获取构建模板
-// @Description 根据模板ID获取构建模板详情
-// @Tags buildTemplates
-// @Produce json
-// @Param id path int true "模板ID"
-// @Success 200 {object} model.BuildTemplate
-// @Failure 404 {object} map[string]string
-// @Failure 500 {object} map[string]string
-// @Router /api/templates/build/{id} [get]
 func GetBuildTemplateHandler(c *gin.Context, svc *service.BuildTemplateService) {
 	idStr := c.Param("id")
 	id, err := strconv.Atoi(idStr)
@@ -66,19 +46,6 @@ func GetBuildTemplateHandler(c *gin.Context, svc *service.BuildTemplateService) 
 }
 
 // ListBuildTemplatesHandler 获取构建模板列表处理函数
-// @Summary 获取构建模板列表
-// @Description 获取所有构建模板的列表，支持按名称、语言、创建者过滤，支持分页
-// @Tags buildTemplates
-// @Produce json
-// @Param name query string false "模板名称"
-// @Param language query string false "编程语言"
-// @Param creator query string false "创建者"
-// @Param updater query string false "修改人"
-// @Param page query int false "页码" default(1)
-// @Param size query int false "每页数量" default(10)
-// @Success 200 {object} types.Response{data=types.PageResponse{records=[]model.BuildTemplate}}
-// @Failure 500 {object} map[string]string
-// @Router /api/templates/build [get]
 func ListBuildTemplatesHandler(c *gin.Context, svc *service.BuildTemplateService) {
 	// 获取查询参数
 	name := c.Query("name")
@@ -113,18 +80,6 @@ func ListBuildTemplatesHandler(c *gin.Context, svc *service.BuildTemplateService
 }
 
 // UpdateBuildTemplateHandler 更新构建模板处理函数
-// @Summary 更新构建模板
-// @Description 根据模板ID更新构建模板信息
-// @Tags buildTemplates
-// @Accept json
-// @Produce json
-// @Param id path int true "模板ID"
-// @Param template body model.BuildTemplate true "构建模板信息"
-// @Success 200 {object} model.BuildTemplate
-// @Failure 400 {object} map[string]string
-// @Failure 404 {object} map[string]string
-// @Failure 500 {object} map[string]string
-// @Router /api/templates/build/{id} [put]
 func UpdateBuildTemplateHandler(c *gin.Context, svc *service.BuildTemplateService) {
 	idStr := c.Param("id")
 	id, err := strconv.Atoi(idStr)
@@ -178,16 +133,6 @@ func UpdateBuildTemplateHandler(c *gin.Context, svc *service.BuildTemplateServic
 }
 
 // DeleteBuildTemplateHandler 删除构建模板处理函数
-// @Summary 删除构建模板
-// @Description 根据模板ID删除构建模板
-// @Tags buildTemplates
-// @Produce json
-// @Param id path int true "模板ID"
-// @Success 200 {object} map[string]string
-// @Failure 400 {object} map[string]string
-// @Failure 404 {object} map[string]string
-// @Failure 500 {object} map[string]string
-// @Router /api/templates/build/{id} [delete]
 func DeleteBuildTemplateHandler(c *gin.Context, svc *service.BuildTemplateService) {
 	idStr := c.Param("id")
 	id, err := strconv.Atoi(idStr)
@@ -204,18 +149,6 @@ func DeleteBuildTemplateHandler(c *gin.Context, svc *service.BuildTemplateServic
 }
 
 // GetTemplateHistoryHandler 获取模板修改历史
-// @Summary 获取模板修改历史
-// @Description 根据模板ID获取模板的修改历史记录，支持分页
-// @Tags buildTemplates
-// @Produce json
-// @Param id path int true "模板ID"
-// @Param page query int false "页码" default(1)
-// @Param size query int false "每页数量" default(10)
-// @Success 200 {object} types.Response{data=types.PageResponse{records=[]model.TemplateHistory}}
-// @Failure 400 {object} map[string]string
-// @Failure 404 {object} map[string]string
-// @Failure 500 {object} map[string]string
-// @Router /api/templates/build/{id}/history [get]
 func GetTemplateHistoryHandler(c *gin.Context, svc *service.BuildTemplateService) {
 	idStr := c.Param("id")
 	id, err := strconv.Atoi(idStr)
@@ -247,77 +180,6 @@ func GetTemplateHistoryHandler(c *gin.Context, svc *service.BuildTemplateService
 
 	// 返回分页结果
 	types.PageSuccess(c, total, history)
-}
-
-// AssociateRepoWithTemplateHandler 关联仓库和模板
-// @Summary 关联仓库和模板
-// @Description 将仓库与构建模板进行关联
-// @Tags template-repo
-// @Produce json
-// @Param templateId path int true "模板ID"
-// @Param repoId path int true "仓库ID"
-// @Success 200 {object} map[string]string
-// @Failure 400 {object} map[string]string
-// @Failure 500 {object} map[string]string
-// @Router /api/templates/build/{templateId}/repos/{repoId} [post]
-func AssociateRepoWithTemplateHandler(c *gin.Context, svc *service.BuildTemplateService) {
-	templateIDStr := c.Param("id")
-	repoIDStr := c.Param("repoId")
-	fmt.Println(templateIDStr, repoIDStr, 8888)
-
-	templateID, err := strconv.Atoi(templateIDStr)
-	if err != nil {
-		types.Error(c, http.StatusBadRequest, "invalid template id format")
-		return
-	}
-
-	repoID, err := strconv.Atoi(repoIDStr)
-	if err != nil {
-		types.Error(c, http.StatusBadRequest, "invalid repo id format")
-		return
-	}
-
-	if err := svc.AddRepoToTemplate(uint(templateID), uint(repoID)); err != nil {
-		types.Error(c, http.StatusInternalServerError, err.Error())
-		return
-	}
-
-	types.Success(c, gin.H{"message": "构建模板关联服务成功。"})
-}
-
-// DisassociateRepoWithTemplateHandler 取消仓库和模板关联
-// @Summary 取消仓库和模板关联
-// @Description 取消仓库与构建模板的关联
-// @Tags template-repo
-// @Produce json
-// @Param templateId path int true "模板ID"
-// @Param repoId path int true "仓库ID"
-// @Success 200 {object} map[string]string
-// @Failure 400 {object} map[string]string
-// @Failure 500 {object} map[string]string
-// @Router /api/templates/build/{templateId}/repos/{repoId} [delete]
-func DisassociateRepoWithTemplateHandler(c *gin.Context, svc *service.BuildTemplateService) {
-	templateIDStr := c.Param("id")
-	repoIDStr := c.Param("repoId")
-
-	templateID, err := strconv.Atoi(templateIDStr)
-	if err != nil {
-		types.Error(c, http.StatusBadRequest, "invalid template id format")
-		return
-	}
-
-	repoID, err := strconv.Atoi(repoIDStr)
-	if err != nil {
-		types.Error(c, http.StatusBadRequest, "invalid repo id format")
-		return
-	}
-
-	if err := svc.RemoveRepoFromTemplate(uint(templateID), uint(repoID)); err != nil {
-		types.Error(c, http.StatusInternalServerError, err.Error())
-		return
-	}
-
-	types.Success(c, gin.H{"message": "association removed successfully"})
 }
 
 // RegisterTemplateRoutes 注册模板相关路由
@@ -354,14 +216,85 @@ func RegisterTemplateRoutes(r *gin.Engine, svc *service.BuildTemplateService) {
 			GetTemplateHistoryHandler(c, svc)
 		})
 
-		// 关联仓库和模板
-		g.POST("/:id/repos/:repoId", func(c *gin.Context) {
-			AssociateRepoWithTemplateHandler(c, svc)
+		// 关联应用和构建模板
+		g.POST("/:id/applications/:applicationId", func(c *gin.Context) {
+			AssociateApplicationWithTemplateHandler(c, svc)
 		})
 
-		// 取消仓库和模板关联
-		g.DELETE("/:id/repos/:repoId", func(c *gin.Context) {
-			DisassociateRepoWithTemplateHandler(c, svc)
+		// 取消应用和构建模板关联
+		g.DELETE("/:id/applications/:applicationId", func(c *gin.Context) {
+			DisassociateApplicationWithTemplateHandler(c, svc)
+		})
+
+		// 获取构建模板关联的应用列表
+		g.GET("/:id/applications", func(c *gin.Context) {
+			getBuildTemplateApplicationsHandler(c, svc)
 		})
 	}
+}
+
+// AssociateApplicationWithTemplateHandler 关联应用和构建模板
+func AssociateApplicationWithTemplateHandler(c *gin.Context, svc *service.BuildTemplateService) {
+	templateIDStr := c.Param("id")
+	applicationIDStr := c.Param("applicationId")
+
+	templateID, err := strconv.Atoi(templateIDStr)
+	if err != nil {
+		types.Error(c, http.StatusBadRequest, "invalid template id format")
+		return
+	}
+
+	applicationID, err := strconv.Atoi(applicationIDStr)
+	if err != nil {
+		types.Error(c, http.StatusBadRequest, "invalid application id format")
+		return
+	}
+
+	if err := svc.AddApplicationToTemplate(uint(templateID), uint(applicationID)); err != nil {
+		types.Error(c, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	types.Success(c, gin.H{"message": "构建模板关联应用成功"})
+}
+
+// DisassociateApplicationWithTemplateHandler 取消应用和构建模板关联
+func DisassociateApplicationWithTemplateHandler(c *gin.Context, svc *service.BuildTemplateService) {
+	templateIDStr := c.Param("id")
+	applicationIDStr := c.Param("applicationId")
+
+	templateID, err := strconv.Atoi(templateIDStr)
+	if err != nil {
+		types.Error(c, http.StatusBadRequest, "invalid template id format")
+		return
+	}
+
+	applicationID, err := strconv.Atoi(applicationIDStr)
+	if err != nil {
+		types.Error(c, http.StatusBadRequest, "invalid application id format")
+		return
+	}
+
+	if err := svc.RemoveApplicationFromTemplate(uint(templateID), uint(applicationID)); err != nil {
+		types.Error(c, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	types.Success(c, gin.H{"message": "association removed successfully"})
+}
+
+// getBuildTemplateApplicationsHandler 获取构建模板关联的应用列表
+func getBuildTemplateApplicationsHandler(c *gin.Context, svc *service.BuildTemplateService) {
+	idStr := c.Param("id")
+	id, err := strconv.Atoi(idStr)
+	if err != nil {
+		types.Error(c, http.StatusBadRequest, "invalid id format")
+		return
+	}
+	apps, err := svc.GetApplicationsByTemplateID(uint(id))
+	if err != nil {
+		types.Error(c, http.StatusInternalServerError, err.Error())
+		return
+	}
+	types.Success(c, apps)
 }

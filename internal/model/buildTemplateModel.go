@@ -29,8 +29,8 @@ type BuildTemplate struct {
 	CreatedAt  timeutil.JSONTime `gorm:"comment:创建时间" json:"created_at"`
 	UpdatedAt  timeutil.JSONTime `gorm:"comment:更新时间" json:"updated_at"`
 
-	// 关联Repo表的多对多关系
-	Repos []Repo `gorm:"many2many:repo_templates;" json:"repos,omitempty"`
+	// 关联应用表的多对多关系
+	Applications []Application `gorm:"many2many:build_template_applications;" json:"applications,omitempty"`
 }
 
 type TemplateHistory struct {

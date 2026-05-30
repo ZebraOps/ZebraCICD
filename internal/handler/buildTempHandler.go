@@ -22,7 +22,7 @@ func (r *BuildTemplateRepository) Create(template *model.BuildTemplate) error {
 // GetByID 根据ID获取模板
 func (r *BuildTemplateRepository) GetByID(id uint) (*model.BuildTemplate, error) {
 	var template model.BuildTemplate
-	if err := r.db.Preload("Repos").First(&template, id).Error; err != nil {
+	if err := r.db.First(&template, id).Error; err != nil {
 		return nil, err
 	}
 	return &template, nil
@@ -79,36 +79,64 @@ func (r *BuildTemplateRepository) Delete(id uint) error {
 		return err
 	}
 
+	// 删除多对多关联 build_template_applications
+	if err := r.db.Exec("DELETE FROM build_template_applications WHERE build_template_id = ?", id).Error; err != nil {
+		return err
+	}
+
 	// 再删除模板记录
 	return r.db.Delete(&model.BuildTemplate{}, id).Error
 }
 
-// AddRepoToTemplate 添加模板到仓库关联
-func (r *BuildTemplateRepository) AddRepoToTemplate(templateID, repoID uint) error {
+// AddApplicationToTemplate 添加模板到应用关联
+func (r *BuildTemplateRepository) AddApplicationToTemplate(templateID, applicationID uint) error {
 	template := &model.BuildTemplate{ID: templateID}
-	repo := &model.Repo{ID: repoID}
-	return r.db.Model(template).Association("Repos").Append(repo)
+	app := &model.Application{ID: applicationID}
+	return r.db.Model(template).Association("Applications").Append(app)
 }
 
-// RemoveRepoFromTemplate 移除仓库与模板的关联
-func (r *BuildTemplateRepository) RemoveRepoFromTemplate(templateID, repoID uint) error {
+// RemoveApplicationFromTemplate 移除应用与模板的关联
+func (r *BuildTemplateRepository) RemoveApplicationFromTemplate(templateID, applicationID uint) error {
 	template := &model.BuildTemplate{ID: templateID}
-	repo := &model.Repo{ID: repoID}
-	return r.db.Model(template).Association("Repos").Delete(repo)
+	app := &model.Application{ID: applicationID}
+	return r.db.Model(template).Association("Applications").Delete(app)
 }
 
-// GetTemplatesByRepoID 根据仓库ID获取关联的模板
-func (r *BuildTemplateRepository) GetTemplatesByRepoID(repoID uint) ([]model.BuildTemplate, error) {
-	var repo model.Repo
-	if err := r.db.Preload("Templates").First(&repo, repoID).Error; err != nil {
+// GetApplicationsByTemplateID 根据构建模板ID获取关联的应用列表
+func (r *BuildTemplateRepository) GetApplicationsByTemplateID(templateID uint) ([]model.ApplicationResponse, error) {
+	var template model.BuildTemplate
+	if err := r.db.Preload("Applications").First(&template, templateID).Error; err != nil {
 		return nil, err
 	}
 
-	// 将 []*model.BuildTemplate 转换为 []model.BuildTemplate
-	templates := make([]model.BuildTemplate, len(repo.Templates))
-	for i, template := range repo.Templates {
-		templates[i] = *template
+	if len(template.Applications) == 0 {
+		return []model.ApplicationResponse{}, nil
 	}
 
-	return templates, nil
+	var responses []model.ApplicationResponse
+	for _, app := range template.Applications {
+		// 获取关联仓库以补充 department 和 language
+		var repo model.Repo
+		if err := r.db.First(&repo, app.RepoID).Error; err != nil {
+			repo = model.Repo{}
+		}
+
+		resp := model.ApplicationResponse{
+			ID:              app.ID,
+			RepoID:          app.RepoID,
+			CName:           app.CName,
+			EName:           app.EName,
+			ListenPort:      app.ListenPort,
+			HealthCheckType: app.HealthCheckType,
+			HealthCheckURL:  app.HealthCheckURL,
+			Description:     app.Description,
+			CreatedAt:       app.CreatedAt,
+			UpdatedAt:       app.UpdatedAt,
+			Department:      repo.RepoDepartment,
+			Language:        repo.RepoLanguage,
+		}
+		responses = append(responses, resp)
+	}
+
+	return responses, nil
 }

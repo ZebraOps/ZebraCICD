@@ -52,12 +52,6 @@ func (s *BuildTemplateService) GetTemplateHistoryPaginated(templateID uint, page
 
 // UpdateTemplate 更新模板并保存历史记录
 func (s *BuildTemplateService) UpdateTemplate(template *model.BuildTemplate) error {
-	// 先获取旧模板信息用于创建历史记录
-	//oldTemplate, err := s.templateRepo.GetByID(template.ID)
-	//if err != nil {
-	//	return err
-	//}
-
 	// 更新模板
 	if err := s.templateRepo.Update(template); err != nil {
 		return err
@@ -79,17 +73,17 @@ func (s *BuildTemplateService) DeleteTemplate(id uint) error {
 	return s.templateRepo.Delete(id)
 }
 
-// AddRepoToTemplate 关联模板和仓库
-func (s *BuildTemplateService) AddRepoToTemplate(templateID, repoID uint) error {
-	return s.templateRepo.AddRepoToTemplate(templateID, repoID)
+// AddApplicationToTemplate 关联模板和应用
+func (s *BuildTemplateService) AddApplicationToTemplate(templateID, applicationID uint) error {
+	return s.templateRepo.AddApplicationToTemplate(templateID, applicationID)
 }
 
-// RemoveRepoFromTemplate 取消模板和仓库关联
-func (s *BuildTemplateService) RemoveRepoFromTemplate(templateID, repoID uint) error {
-	return s.templateRepo.RemoveRepoFromTemplate(templateID, repoID)
+// RemoveApplicationFromTemplate 取消模板和应用关联
+func (s *BuildTemplateService) RemoveApplicationFromTemplate(templateID, applicationID uint) error {
+	return s.templateRepo.RemoveApplicationFromTemplate(templateID, applicationID)
 }
 
-// GetTemplatesByRepoID 根据仓库ID获取模板
-func (s *BuildTemplateService) GetTemplatesByRepoID(repoID uint) ([]model.BuildTemplate, error) {
-	return s.templateRepo.GetTemplatesByRepoID(repoID)
+// GetApplicationsByTemplateID 根据构建模板ID获取关联的应用列表
+func (s *BuildTemplateService) GetApplicationsByTemplateID(templateID uint) ([]model.ApplicationResponse, error) {
+	return s.templateRepo.GetApplicationsByTemplateID(templateID)
 }

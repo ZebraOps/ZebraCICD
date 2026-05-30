@@ -20,7 +20,7 @@ func (r *RepoRepository) Create(repo *model.Repo) error {
 
 func (r *RepoRepository) GetByID(id uint) (*model.Repo, error) {
 	var repo model.Repo
-	if err := r.db.Preload("Templates").Preload("DeploymentTemplates").First(&repo, id).Error; err != nil {
+	if err := r.db.First(&repo, id).Error; err != nil {
 		return nil, err
 	}
 	return &repo, nil
@@ -28,7 +28,7 @@ func (r *RepoRepository) GetByID(id uint) (*model.Repo, error) {
 
 func (r *RepoRepository) List() ([]model.Repo, error) {
 	var repos []model.Repo
-	if err := r.db.Preload("Templates").Preload("DeploymentTemplates").Find(&repos).Error; err != nil {
+	if err := r.db.Find(&repos).Error; err != nil {
 		return nil, err
 	}
 	return repos, nil
@@ -47,21 +47,13 @@ func (r *RepoRepository) Delete(id uint) error {
 	if err := r.db.Where("repo_id = ?", id).Delete(&model.Application{}).Error; err != nil {
 		return err
 	}
-	// 3. 删除多对多关联 repo_templates
-	if err := r.db.Exec("DELETE FROM repo_templates WHERE repo_id = ?", id).Error; err != nil {
-		return err
-	}
-	// 4. 删除多对多关联 repo_deployment_templates
-	if err := r.db.Exec("DELETE FROM repo_deployment_templates WHERE repo_id = ?", id).Error; err != nil {
-		return err
-	}
-	// 5. 最后删除 repo 本身
+	// 3. 最后删除 repo 本身
 	return r.db.Delete(&model.Repo{}, id).Error
 }
 
 func (r *RepoRepository) GetByEName(eName string) (*model.Repo, error) {
 	var repo model.Repo
-	if err := r.db.Preload("Templates").Preload("DeploymentTemplates").Where("e_name = ?", eName).First(&repo).Error; err != nil {
+	if err := r.db.Where("e_name = ?", eName).First(&repo).Error; err != nil {
 		return nil, err
 	}
 	return &repo, nil

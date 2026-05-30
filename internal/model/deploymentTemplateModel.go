@@ -37,8 +37,9 @@ type DeploymentTemplate struct {
 	CreatedAt    timeutil.JSONTime `gorm:"comment:创建时间" json:"created_at"`
 	UpdatedAt    timeutil.JSONTime `gorm:"comment:更新时间" json:"updated_at"`
 
-	// 关联仓库表的多对多关系
-	Repos []Repo `gorm:"many2many:repo_deployment_templates;" json:"repos,omitempty"`
+	// 关联应用表的多对多关系
+	Applications []Application `gorm:"many2many:deployment_template_applications;" json:"applications,omitempty"`
+
 
 	// 正确的关联历史记录关系
 	Histories []DeploymentTemplateHistory `gorm:"foreignKey:DeploymentTemplateID" json:"histories,omitempty"`

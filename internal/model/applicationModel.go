@@ -40,6 +40,11 @@ type Application struct {
 	// 修正外键关系定义
 	Repo        *Repo                   `gorm:"foreignKey:RepoID;references:ID" json:"repo,omitempty"`
 	Deployments []ApplicationDeployment `gorm:"foreignKey:ApplicationID" json:"deployments,omitempty"`
+
+	// 关联构建模板的多对多关系
+	BuildTemplates      []BuildTemplate      `gorm:"many2many:build_template_applications;" json:"build_templates,omitempty"`
+	// 关联部署模板的多对多关系
+	DeploymentTemplates []DeploymentTemplate `gorm:"many2many:deployment_template_applications;" json:"deployment_templates,omitempty"`
 }
 
 type ApplicationDeploymentRequest struct {

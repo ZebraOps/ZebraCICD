@@ -12,16 +12,6 @@ import (
 )
 
 // CreateDeploymentTemplateHandler 创建部署模板
-// @Summary 创建部署模板
-// @Description 创建一个新的部署模板
-// @Tags deployment-templates
-// @Accept json
-// @Produce json
-// @Param template body model.DeploymentTemplate true "部署模板信息"
-// @Success 201 {object} model.DeploymentTemplate
-// @Failure 400 {object} map[string]string
-// @Failure 500 {object} map[string]string
-// @Router /api/templates/deployment [post]
 func CreateDeploymentTemplateHandler(c *gin.Context, svc *service.DeploymentTemplateService) {
 	var req model.DeploymentTemplate
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -40,19 +30,6 @@ func CreateDeploymentTemplateHandler(c *gin.Context, svc *service.DeploymentTemp
 }
 
 // ListDeploymentTemplatesHandler 获取部署模板列表
-// @Summary 获取部署模板列表
-// @Description 获取所有部署模板的列表，支持按名称、类型、状态等条件查询
-// @Tags deployment-templates
-// @Produce json
-// @Param name query string false "部署模板名称"
-// @Param type query string false "模板类型"
-// @Param status query string false "状态"
-// @Param creator query string false "创建人"
-// @Param page query int false "页码" default(1)
-// @Param size query int false "页数" default(10)
-// @Success 200 {object} types.Response{data=types.PageResponse{records=[]model.DeploymentTemplate}}
-// @Failure 500 {object} map[string]string
-// @Router /api/templates/deployment [get]
 func ListDeploymentTemplatesHandler(c *gin.Context, svc *service.DeploymentTemplateService) {
 	// 解析查询参数
 	name := c.Query("name")
@@ -97,16 +74,6 @@ func ListDeploymentTemplatesHandler(c *gin.Context, svc *service.DeploymentTempl
 }
 
 // GetDeploymentTemplateHandler 根据ID获取部署模板
-// @Summary 根据ID获取部署模板
-// @Description 根据部署模板ID获取部署模板详情
-// @Tags deployment-templates
-// @Produce json
-// @Param id path int true "部署模板ID"
-// @Success 200 {object} model.DeploymentTemplate
-// @Failure 400 {object} map[string]string
-// @Failure 404 {object} map[string]string
-// @Failure 500 {object} map[string]string
-// @Router /api/templates/deployment/{id} [get]
 func GetDeploymentTemplateHandler(c *gin.Context, svc *service.DeploymentTemplateService) {
 	idStr := c.Param("id")
 	id, err := strconv.Atoi(idStr)
@@ -125,18 +92,6 @@ func GetDeploymentTemplateHandler(c *gin.Context, svc *service.DeploymentTemplat
 }
 
 // UpdateDeploymentTemplateHandler 更新部署模板
-// @Summary 更新部署模板
-// @Description 根据部署模板ID更新部署模板信息
-// @Tags deployment-templates
-// @Accept json
-// @Produce json
-// @Param id path int true "部署模板ID"
-// @Param template body model.DeploymentTemplate true "部署模板信息"
-// @Success 200 {object} model.DeploymentTemplate
-// @Failure 400 {object} map[string]string
-// @Failure 404 {object} map[string]string
-// @Failure 500 {object} map[string]string
-// @Router /api/templates/deployment/{id} [put]
 func UpdateDeploymentTemplateHandler(c *gin.Context, svc *service.DeploymentTemplateService) {
 	idStr := c.Param("id")
 	id, err := strconv.Atoi(idStr)
@@ -186,8 +141,8 @@ func UpdateDeploymentTemplateHandler(c *gin.Context, svc *service.DeploymentTemp
 	if req.Status != "" {
 		existingTemplate.Status = req.Status
 	}
-		// updater 强制使用网关注入的当前用户名，确保修改人始终为实际操作者
-		existingTemplate.Updater = c.GetString("user_name")
+			// updater 强制使用网关注入的当前用户名，确保修改人始终为实际操作者
+			existingTemplate.Updater = c.GetString("user_name")
 	if req.Department != "" {
 		existingTemplate.Department = req.Department
 	}
@@ -207,16 +162,6 @@ func UpdateDeploymentTemplateHandler(c *gin.Context, svc *service.DeploymentTemp
 }
 
 // DeleteDeploymentTemplateHandler 删除部署模板
-// @Summary 删除部署模板
-// @Description 根据部署模板ID删除部署模板（软删除）
-// @Tags deployment-templates
-// @Produce json
-// @Param id path int true "部署模板ID"
-// @Success 200 {object} map[string]string
-// @Failure 400 {object} map[string]string
-// @Failure 404 {object} map[string]string
-// @Failure 500 {object} map[string]string
-// @Router /api/templates/deployment/{id} [delete]
 func DeleteDeploymentTemplateHandler(c *gin.Context, svc *service.DeploymentTemplateService) {
 	idStr := c.Param("id")
 	id, err := strconv.Atoi(idStr)
@@ -232,114 +177,7 @@ func DeleteDeploymentTemplateHandler(c *gin.Context, svc *service.DeploymentTemp
 	types.Success(c, gin.H{"message": "deployment template deleted successfully"})
 }
 
-// AssociateRepoWithDeployTemplateHandler 关联仓库和部署模板
-// @Summary 关联仓库和部署模板
-// @Description 将仓库与部署模板进行关联
-// @Tags deployment-template-repo
-// @Produce json
-// @Param id path int true "模板ID"
-// @Param repoId path int true "仓库ID"
-// @Success 200 {object} map[string]string
-// @Failure 400 {object} map[string]string
-// @Failure 500 {object} map[string]string
-// @Router /api/templates/deployment/{id}/repos/{repoId} [post]
-func AssociateRepoWithDeployTemplateHandler(c *gin.Context, svc *service.DeploymentTemplateService) {
-	templateIDStr := c.Param("id")
-	repoIDStr := c.Param("repoId")
-
-	templateID, err := strconv.Atoi(templateIDStr)
-	if err != nil {
-		types.Error(c, http.StatusBadRequest, "invalid template id format")
-		return
-	}
-
-	repoID, err := strconv.Atoi(repoIDStr)
-	if err != nil {
-		types.Error(c, http.StatusBadRequest, "invalid repo id format")
-		return
-	}
-
-	if err := svc.AddRepoToTemplate(uint(templateID), uint(repoID)); err != nil {
-		types.Error(c, http.StatusInternalServerError, err.Error())
-		return
-	}
-
-	types.Success(c, gin.H{"message": "部署模板关联仓库成功。"})
-}
-
-// DisassociateRepoWithDeploymentTemplateHandler 取消仓库和部署模板关联
-// @Summary 取消仓库和部署模板关联
-// @Description 取消仓库与部署模板的关联
-// @Tags deployment-template-repo
-// @Produce json
-// @Param id path int true "模板ID"
-// @Param repoId path int true "仓库ID"
-// @Success 200 {object} map[string]string
-// @Failure 400 {object} map[string]string
-// @Failure 500 {object} map[string]string
-// @Router /api/templates/deployment/{id}/repos/{repoId} [delete]
-func DisassociateRepoWithDeploymentTemplateHandler(c *gin.Context, svc *service.DeploymentTemplateService) {
-	templateIDStr := c.Param("id")
-	repoIDStr := c.Param("repoId")
-
-	templateID, err := strconv.Atoi(templateIDStr)
-	if err != nil {
-		types.Error(c, http.StatusBadRequest, "invalid template id format")
-		return
-	}
-
-	repoID, err := strconv.Atoi(repoIDStr)
-	if err != nil {
-		types.Error(c, http.StatusBadRequest, "invalid repo id format")
-		return
-	}
-
-	if err := svc.RemoveRepoFromTemplate(uint(templateID), uint(repoID)); err != nil {
-		types.Error(c, http.StatusInternalServerError, err.Error())
-		return
-	}
-
-	types.Success(c, gin.H{"message": "association removed successfully"})
-}
-
-// GetReposByTemplateHandler 根据部署模板ID获取关联的仓库列表
-// @Summary 获取关联的仓库列表
-// @Description 根据部署模板ID获取所有关联的仓库列表
-// @Tags deployment-templates
-// @Produce json
-// @Param id path int true "模板ID"
-// @Success 200 {array} model.Repo
-// @Failure 400 {object} map[string]string
-// @Failure 500 {object} map[string]string
-// @Router /api/templates/deployment/{id}/repos [get]
-func GetReposByTemplateHandler(c *gin.Context, svc *service.DeploymentTemplateService) {
-	templateIDStr := c.Param("id")
-	templateID, err := strconv.Atoi(templateIDStr)
-	if err != nil {
-		types.Error(c, http.StatusBadRequest, "invalid template id format")
-		return
-	}
-
-	repos, err := svc.GetReposByTemplateID(uint(templateID))
-	if err != nil {
-		types.Error(c, http.StatusInternalServerError, err.Error())
-		return
-	}
-
-	types.Success(c, repos)
-}
-
 // GetDeploymentTemplateHistoryHandler 获取部署模板历史记录
-// @Summary 获取部署模板历史记录
-// @Description 根据部署模板ID获取模板的修改历史记录
-// @Tags deployment-templates
-// @Produce json
-// @Param id path int true "模板ID"
-// @Success 200 {array} model.DeploymentTemplateHistory
-// @Failure 400 {object} map[string]string
-// @Failure 404 {object} map[string]string
-// @Failure 500 {object} map[string]string
-// @Router /api/templates/deployment/{id}/history [get]
 func GetDeploymentTemplateHistoryHandler(c *gin.Context, svc *service.DeploymentTemplateService) {
 	templateIDStr := c.Param("id")
 	templateID, err := strconv.Atoi(templateIDStr)
@@ -385,24 +223,92 @@ func RegisterDeploymentTemplateRoutes(r *gin.Engine, svc *service.DeploymentTemp
 			DeleteDeploymentTemplateHandler(c, svc)
 		})
 
-		// 关联仓库和部署模板
-		g.POST("/:id/repos/:repoId", func(c *gin.Context) {
-			AssociateRepoWithDeployTemplateHandler(c, svc)
-		})
-
-		// 取消仓库和部署模板关联
-		g.DELETE("/:id/repos/:repoId", func(c *gin.Context) {
-			DisassociateRepoWithDeploymentTemplateHandler(c, svc)
-		})
-
-		// 获取关联的仓库列表
-		g.GET("/:id/repos", func(c *gin.Context) {
-			GetReposByTemplateHandler(c, svc)
-		})
-
 		// 获取模板修改历史
 		g.GET("/:id/history", func(c *gin.Context) {
 			GetDeploymentTemplateHistoryHandler(c, svc)
 		})
+
+		// 关联应用和部署模板
+		g.POST("/:id/applications/:applicationId", func(c *gin.Context) {
+			AssociateApplicationWithDeployTemplateHandler(c, svc)
+		})
+
+		// 取消应用和部署模板关联
+		g.DELETE("/:id/applications/:applicationId", func(c *gin.Context) {
+			DisassociateApplicationWithDeploymentTemplateHandler(c, svc)
+		})
+
+		// 获取部署模板关联的应用列表
+		g.GET("/:id/applications", func(c *gin.Context) {
+			GetApplicationsByDeployTemplateHandler(c, svc)
+		})
 	}
+}
+
+// AssociateApplicationWithDeployTemplateHandler 关联应用和部署模板
+func AssociateApplicationWithDeployTemplateHandler(c *gin.Context, svc *service.DeploymentTemplateService) {
+	templateIDStr := c.Param("id")
+	applicationIDStr := c.Param("applicationId")
+
+	templateID, err := strconv.Atoi(templateIDStr)
+	if err != nil {
+		types.Error(c, http.StatusBadRequest, "invalid template id format")
+		return
+	}
+
+	applicationID, err := strconv.Atoi(applicationIDStr)
+	if err != nil {
+		types.Error(c, http.StatusBadRequest, "invalid application id format")
+		return
+	}
+
+	if err := svc.AddApplicationToTemplate(uint(templateID), uint(applicationID)); err != nil {
+		types.Error(c, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	types.Success(c, gin.H{"message": "部署模板关联应用成功"})
+}
+
+// DisassociateApplicationWithDeploymentTemplateHandler 取消应用和部署模板关联
+func DisassociateApplicationWithDeploymentTemplateHandler(c *gin.Context, svc *service.DeploymentTemplateService) {
+	templateIDStr := c.Param("id")
+	applicationIDStr := c.Param("applicationId")
+
+	templateID, err := strconv.Atoi(templateIDStr)
+	if err != nil {
+		types.Error(c, http.StatusBadRequest, "invalid template id format")
+		return
+	}
+
+	applicationID, err := strconv.Atoi(applicationIDStr)
+	if err != nil {
+		types.Error(c, http.StatusBadRequest, "invalid application id format")
+		return
+	}
+
+	if err := svc.RemoveApplicationFromTemplate(uint(templateID), uint(applicationID)); err != nil {
+		types.Error(c, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	types.Success(c, gin.H{"message": "association removed successfully"})
+}
+
+// GetApplicationsByDeployTemplateHandler 根据部署模板ID获取关联的应用列表
+func GetApplicationsByDeployTemplateHandler(c *gin.Context, svc *service.DeploymentTemplateService) {
+	templateIDStr := c.Param("id")
+	templateID, err := strconv.Atoi(templateIDStr)
+	if err != nil {
+		types.Error(c, http.StatusBadRequest, "invalid template id format")
+		return
+	}
+
+	apps, err := svc.GetApplicationsByTemplateID(uint(templateID))
+	if err != nil {
+		types.Error(c, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	types.Success(c, apps)
 }

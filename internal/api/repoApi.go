@@ -240,35 +240,8 @@ func GetRepoURLFromGitLabHandler(c *gin.Context, svc *service.RepoService) {
 	types.Success(c, repoURL)
 }
 
-// GetRepoTemplatesHandler 获取仓库关联的模板
-// @Summary 获取仓库关联的模板
-// @Description 根据仓库ID获取所有关联的构建模板
-// @Tags repos
-// @Produce json
-// @Param id path int true "仓库ID"
-// @Success 200 {array} model.BuildTemplate
-// @Failure 400 {object} map[string]string
-// @Failure 500 {object} map[string]string
-// @Router /api/repos/{id}/templates [get]
-func GetRepoTemplatesHandler(c *gin.Context, templateSvc *service.BuildTemplateService) {
-	idStr := c.Param("id")
-	id, err := strconv.Atoi(idStr)
-	if err != nil {
-		types.Error(c, http.StatusBadRequest, "invalid id format")
-		return
-	}
-
-	templates, err := templateSvc.GetTemplatesByRepoID(uint(id))
-	if err != nil {
-		types.Error(c, http.StatusInternalServerError, err.Error())
-		return
-	}
-
-	types.Success(c, templates)
-}
-
 // RegisterRepoRoutes 注册仓库相关路由
-func RegisterRepoRoutes(r *gin.Engine, svc *service.RepoService, templateSvc *service.BuildTemplateService) {
+func RegisterRepoRoutes(r *gin.Engine, svc *service.RepoService) {
 	g := r.Group("/api/repos")
 	{
 		// 创建仓库
@@ -299,11 +272,6 @@ func RegisterRepoRoutes(r *gin.Engine, svc *service.RepoService, templateSvc *se
 		// 根据英文名称从GitLab获取仓库地址
 		g.GET("/gitlab-url/:repoID", func(c *gin.Context) {
 			GetRepoURLFromGitLabHandler(c, svc)
-		})
-
-		// 获取仓库关联的模板
-		g.GET("/:id/templates", func(c *gin.Context) {
-			GetRepoTemplatesHandler(c, templateSvc)
 		})
 	}
 }
