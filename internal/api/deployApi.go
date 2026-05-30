@@ -68,7 +68,7 @@ func createDeployTaskHandler(c *gin.Context, svc *service.DeployService) {
 		return
 	}
 
-	c.JSON(http.StatusAccepted, gin.H{"task_id": req.ID})
+	types.Success(c, gin.H{"task_id": req.ID})
 }
 
 // GetDeployTask 获取部署任务
@@ -94,7 +94,7 @@ func getDeployTaskHandler(c *gin.Context, svc *service.DeployService) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "task not found"})
 		return
 	}
-	c.JSON(http.StatusOK, t)
+	types.Success(c, t)
 }
 
 // ListDeployTasks 获取部署任务列表
@@ -144,7 +144,7 @@ func listDeployTasksHandler(c *gin.Context, svc *service.DeployService) {
 
 // DeleteDeployTask 删除部署任务
 // @Summary 删除部署任务
-// @Description 根据ID删除部署任务
+// @Description 根据ID删除部署任务，同时删除关联的Jenkins Job
 // @Tags deploys
 // @Produce json
 // @Param id path int true "任务ID"
@@ -165,7 +165,38 @@ func deleteDeployTaskHandler(c *gin.Context, svc *service.DeployService) {
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"message": "deleted"})
+	types.Success(c, gin.H{"message": "deleted"})
+}
+
+// batchDeleteRequest 批量删除请求体
+type batchDeleteRequest struct {
+	IDs []uint `json:"ids" binding:"required"`
+}
+
+// BatchDeleteDeployTasks 批量删除部署任务
+// @Summary 批量删除部署任务
+// @Description 批量删除部署任务，同时删除关联的Jenkins Job
+// @Tags deploys
+// @Accept json
+// @Produce json
+// @Param ids body []uint true "任务ID列表"
+// @Success 200 {object} map[string]string
+// @Failure 400 {object} map[string]string
+// @Failure 500 {object} map[string]string
+// @Router /api/deploys/batch-delete [post]
+func batchDeleteDeployTasksHandler(c *gin.Context, svc *service.DeployService) {
+	var req batchDeleteRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	if err := svc.BatchDeleteTasks(req.IDs); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	types.Success(c, gin.H{"message": fmt.Sprintf("%d tasks deleted", len(req.IDs))})
 }
 
 // RegisterDeployRoutes 注册部署相关路由
@@ -180,6 +211,11 @@ func RegisterDeployRoutes(r *gin.Engine, svc *service.DeployService) {
 		// create deploy task
 		g.POST("", func(c *gin.Context) {
 			createDeployTaskHandler(c, svc)
+		})
+
+		// batch delete
+		g.POST("/batch-delete", func(c *gin.Context) {
+			batchDeleteDeployTasksHandler(c, svc)
 		})
 
 		g.GET("/:id", func(c *gin.Context) {

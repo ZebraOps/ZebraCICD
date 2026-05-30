@@ -39,11 +39,15 @@ func CreateApplicationHandler(c *gin.Context, svc *service.ApplicationService) {
 
 // ListApplicationsHandler 获取应用服务列表
 // @Summary 获取应用服务列表
-// @Description 根据仓库ID获取应用服务列表
+// @Description 根据仓库ID分页获取应用服务列表，支持按部门/语言筛选
 // @Tags applications
 // @Produce json
-// @Param id query int true "仓库ID"
-// @Success 200 {array} model.ApplicationResponse
+// @Param id query int false "仓库ID"
+// @Param department query string false "归属部门"
+// @Param language query string false "开发语言"
+// @Param page query int false "页码" default(1)
+// @Param size query int false "每页数量" default(20)
+// @Success 200 {object} types.PageResponse
 // @Failure 400 {object} map[string]string
 // @Failure 500 {object} map[string]string
 // @Router /api/applications [get]
@@ -62,13 +66,26 @@ func ListApplicationsHandler(c *gin.Context, svc *service.ApplicationService) {
 		repoID = uint(id)
 	}
 
-	applications, err := svc.ListApplicationsByRepoID(repoID, department, language)
+	page := 1
+	size := 20
+	if pageStr := c.Query("page"); pageStr != "" {
+		if p, err := strconv.Atoi(pageStr); err == nil && p > 0 {
+			page = p
+		}
+	}
+	if sizeStr := c.Query("size"); sizeStr != "" {
+		if s, err := strconv.Atoi(sizeStr); err == nil && s > 0 {
+			size = s
+		}
+	}
+
+	applications, total, err := svc.ListApplicationsByRepoID(repoID, department, language, page, size)
 	if err != nil {
 		types.Error(c, http.StatusInternalServerError, err.Error())
 		return
 	}
 
-	types.Success(c, applications)
+	types.PageSuccess(c, total, applications)
 }
 
 // GetApplicationByIDHandler 根据ID获取应用服务

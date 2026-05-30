@@ -68,9 +68,9 @@ func (s *ApplicationService) GetApplicationByID(id uint) (*model.Application, er
 	return s.appRepo.GetByID(id)
 }
 
-// ListApplicationsByRepoID 根据仓库ID及可选部门/语言获取应用服务列表
-func (s *ApplicationService) ListApplicationsByRepoID(repoID uint, department, language string) ([]model.ApplicationResponse, error) {
-	return s.appRepo.GetApplicationsWithDeploymentCount(repoID, department, language)
+// ListApplicationsByRepoID 根据仓库ID及可选部门/语言分页获取应用服务列表
+func (s *ApplicationService) ListApplicationsByRepoID(repoID uint, department, language string, page, size int) ([]model.ApplicationResponse, int64, error) {
+	return s.appRepo.GetApplicationsWithDeploymentCount(repoID, department, language, page, size)
 }
 
 // UpdateApplication 更新应用服务

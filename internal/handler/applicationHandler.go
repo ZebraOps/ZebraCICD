@@ -46,21 +46,30 @@ func (r *ApplicationRepository) Delete(id uint) error {
 	return r.db.Delete(&model.Application{}, id).Error
 }
 
-// GetApplicationsWithDeploymentCount 获取应用服务列表并包含部署配置数量，支持按部门/语言过滤
-func (r *ApplicationRepository) GetApplicationsWithDeploymentCount(repoID uint, department, language string) ([]model.ApplicationResponse, error) {
-	db := r.db.Table("applications").
+// GetApplicationsWithDeploymentCount 获取应用服务列表并包含部署配置数量，支持按部门/语言过滤，支持分页
+func (r *ApplicationRepository) GetApplicationsWithDeploymentCount(repoID uint, department, language string, page, size int) ([]model.ApplicationResponse, int64, error) {
+	baseQuery := r.db.Table("applications").
 		Select("applications.*, repos.repo_department AS department, repos.repo_language AS language").
 		Joins("LEFT JOIN repos ON repos.id = applications.repo_id")
 
 	if repoID > 0 {
-		db = db.Where("applications.repo_id = ?", repoID)
+		baseQuery = baseQuery.Where("applications.repo_id = ?", repoID)
 	}
 	if department != "" {
-		db = db.Where("repos.repo_department LIKE ?", "%"+department+"%")
+		baseQuery = baseQuery.Where("repos.repo_department LIKE ?", "%"+department+"%")
 	}
 	if language != "" {
-		db = db.Where("repos.repo_language LIKE ?", "%"+language+"%")
+		baseQuery = baseQuery.Where("repos.repo_language LIKE ?", "%"+language+"%")
 	}
+
+	// 先统计总数
+	var total int64
+	if err := baseQuery.Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+
+	// 分页查询
+	offset := (page - 1) * size
 
 	type row struct {
 		model.Application
@@ -68,8 +77,8 @@ func (r *ApplicationRepository) GetApplicationsWithDeploymentCount(repoID uint, 
 		Language   string
 	}
 	var rows []row
-	if err := db.Scan(&rows).Error; err != nil {
-		return nil, err
+	if err := baseQuery.Order("applications.id DESC").Offset(offset).Limit(size).Scan(&rows).Error; err != nil {
+		return nil, 0, err
 	}
 
 	var responses []model.ApplicationResponse
@@ -95,7 +104,7 @@ func (r *ApplicationRepository) GetApplicationsWithDeploymentCount(repoID uint, 
 		responses = append(responses, resp)
 	}
 
-	return responses, nil
+	return responses, total, nil
 }
 
 // ApplicationDeploymentRepository 应用部署配置Repository

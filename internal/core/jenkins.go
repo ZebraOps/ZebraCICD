@@ -156,6 +156,39 @@ func (jc *JenkinsClient) CreateJob(jobName, configXML string) error {
 	return nil
 }
 
+// DeleteJob 删除一个Jenkins任务
+func (jc *JenkinsClient) DeleteJob(jobName string) error {
+	if jobName == "" {
+		return fmt.Errorf("job name cannot be empty")
+	}
+
+	url := fmt.Sprintf("%s/job/%s/doDelete", jc.baseURL, url.QueryEscape(jobName))
+	req, err := http.NewRequest("POST", url, nil)
+	if err != nil {
+		return fmt.Errorf("failed to create request: %v", err)
+	}
+	req.SetBasicAuth(jc.username, jc.password)
+
+	resp, err := jc.client.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to delete job: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusFound && resp.StatusCode != http.StatusNoContent {
+		body, _ := io.ReadAll(resp.Body)
+		// 404 表示 Jenkins 中已无此任务，不算失败
+		if resp.StatusCode == http.StatusNotFound {
+			log.S().Infof("Jenkins job %s not found in Jenkins, skip deletion", jobName)
+			return nil
+		}
+		return fmt.Errorf("delete job failed with status %d: %s", resp.StatusCode, string(body))
+	}
+
+	log.S().Infof("Jenkins job deleted successfully: %s", jobName)
+	return nil
+}
+
 // BuildJob 触发Jenkins构建（带参数）
 func (jc *JenkinsClient) BuildJob(jobName string, params map[string]string) (*JenkinsBuildResult, error) {
 

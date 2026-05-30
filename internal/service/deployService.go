@@ -146,14 +146,19 @@ func (s *DeployService) ProcessDeploymentTask(ctx context.Context, taskID uint) 
 
 // triggerJenkinsBuild 触发Jenkins构建
 func (s *DeployService) triggerJenkinsBuild(task *model.DeployTask) (*core.JenkinsBuildResult, error) {
-	// 1. 根据仓库ID获取构建模板
+	// 1. 根据应用ID获取关联仓库
+	var app model.Application
+	if err := s.db.First(&app, task.ProjectID).Error; err != nil {
+		return nil, fmt.Errorf("failed to get application %d: %v", task.ProjectID, err)
+	}
+
 	var repo model.Repo
-	if err := s.db.Preload("Templates").First(&repo, task.ProjectID).Error; err != nil {
-		return nil, fmt.Errorf("failed to get repo: %v", err)
+	if err := s.db.Preload("Templates").First(&repo, app.RepoID).Error; err != nil {
+		return nil, fmt.Errorf("failed to get repo %d: %v", app.RepoID, err)
 	}
 
 	if len(repo.Templates) == 0 {
-		return nil, fmt.Errorf("no build template found for repo %d", task.ProjectID)
+		return nil, fmt.Errorf("no build template found for repo %d", app.RepoID)
 	}
 
 	// 2. 获取第一个构建模板（实际业务中可能需要更复杂的逻辑）
@@ -247,14 +252,19 @@ func (s *DeployService) deployToK8s(task *model.DeployTask) error {
 		return err
 	}
 
-	// 4. 根据仓库ID获取部署模板（通过仓库与部署模板的关联关系）
+	// 4. 根据应用ID获取关联仓库和部署模板
+	var app model.Application
+	if err := s.db.First(&app, task.ProjectID).Error; err != nil {
+		return fmt.Errorf("failed to get application %d: %v", task.ProjectID, err)
+	}
+
 	var repo model.Repo
-	if err := s.db.Preload("DeploymentTemplates").First(&repo, task.ProjectID).Error; err != nil {
-		return fmt.Errorf("failed to get repo: %v", err)
+	if err := s.db.Preload("DeploymentTemplates").First(&repo, app.RepoID).Error; err != nil {
+		return fmt.Errorf("failed to get repo %d: %v", app.RepoID, err)
 	}
 
 	if len(repo.DeploymentTemplates) == 0 {
-		return fmt.Errorf("no deployment template found for repo %d", task.ProjectID)
+		return fmt.Errorf("no deployment template found for repo %d", app.RepoID)
 	}
 
 	// 5. 使用第一个部署模板（实际业务中可能需要更复杂的逻辑）
@@ -282,11 +292,11 @@ func (s *DeployService) getK8sClientByCluster(cluster model.K8SCluster) (*kubern
 
 // renderTemplate 渲染部署模板
 func (s *DeployService) renderTemplate(templateContent string, task *model.DeployTask) string {
-	// 获取项目相关信息
+	// 获取项目名称（应用的英文名）
 	var projectName string
-	var repo model.Repo
-	if err := s.db.Select("e_name").First(&repo, task.ProjectID).Error; err == nil {
-		projectName = repo.EName
+	var app model.Application
+	if err := s.db.First(&app, task.ProjectID).Error; err == nil {
+		projectName = app.EName
 	} else {
 		projectName = fmt.Sprintf("calc-api-project-%d", task.ProjectID)
 	}
@@ -706,9 +716,41 @@ func (s *DeployService) ListTasks(status string, projectID uint, page, size int)
 	return tasks, total, nil
 }
 
-// DeleteTask 删除部署任务
+// DeleteTask 删除部署任务，同时尝试删除关联的Jenkins Job
 func (s *DeployService) DeleteTask(id uint) error {
+	var task model.DeployTask
+	// 先查出任务，获取 Jenkins Job 名称
+	if err := s.db.First(&task, id).Error; err != nil {
+		return err
+	}
+
+	// 如果有关联 Jenkins Job，尝试删除
+	if task.JenkinsJobName != "" && s.jenkins != nil {
+		if err := s.jenkins.DeleteJob(task.JenkinsJobName); err != nil {
+			log.S().Warnf("failed to delete Jenkins job '%s': %v", task.JenkinsJobName, err)
+			// 继续删除数据库记录，不因 Jenkins 失败而阻断
+		}
+	}
+
 	return s.db.Delete(&model.DeployTask{}, id).Error
+}
+
+// BatchDeleteTasks 批量删除部署任务，同时尝试删除关联的Jenkins Job
+func (s *DeployService) BatchDeleteTasks(ids []uint) error {
+	var tasks []model.DeployTask
+	if err := s.db.Where("id IN ?", ids).Find(&tasks).Error; err != nil {
+		return err
+	}
+
+	for _, task := range tasks {
+		if task.JenkinsJobName != "" && s.jenkins != nil {
+			if err := s.jenkins.DeleteJob(task.JenkinsJobName); err != nil {
+				log.S().Warnf("failed to delete Jenkins job '%s': %v", task.JenkinsJobName, err)
+			}
+		}
+	}
+
+	return s.db.Where("id IN ?", ids).Delete(&model.DeployTask{}).Error
 }
 
 
