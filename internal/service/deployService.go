@@ -53,6 +53,14 @@ func int32Ptr(i int32) *int32 {
 	return &i
 }
 
+// stripURLProtocol 剥离 URL 中的 http:// 或 https:// 前缀
+// Docker 镜像引用格式不允许包含协议前缀
+func stripURLProtocol(rawURL string) string {
+	u := strings.TrimPrefix(rawURL, "https://")
+	u = strings.TrimPrefix(u, "http://")
+	return strings.TrimSuffix(u, "/")
+}
+
 // getK8sClient 根据集群ID获取K8s客户端
 func (s *DeployService) getK8sClient(clusterID uint) (*kubernetes.Clientset, error) {
 	// 从数据库获取K8s集群配置
@@ -249,7 +257,7 @@ func (s *DeployService) triggerJenkinsBuild(task *model.DeployTask) (*core.Jenki
 			var imageRepo model.ImageRepository
 			if err := s.db.First(&imageRepo, *appDeploy.ImageRepoID).Error; err == nil {
 				harborCredsID = fmt.Sprintf("zebra-harbor-%d", imageRepo.ID)
-				harborRegistry = imageRepo.URL
+				harborRegistry = stripURLProtocol(imageRepo.URL)
 				// 注入 Harbor 凭据到 Jenkins
 				if err := jenkinsClient.CreateOrUpdateUsernamePasswordCredential(
 					harborCredsID,
@@ -321,7 +329,7 @@ func (s *DeployService) triggerJenkinsBuild(task *model.DeployTask) (*core.Jenki
 
 	// 4. Fallback：如果平台关联未设置，使用全局配置
 	if harborRegistry == "" {
-		harborRegistry = s.cfg.HarborURL
+		harborRegistry = stripURLProtocol(s.cfg.HarborURL)
 	}
 	if harborProject == "" {
 		harborProject = task.HarborProject

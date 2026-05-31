@@ -63,8 +63,8 @@ func NewJenkinsClientWithConfig(baseURL, username, password string, config Jenki
 
 // Authenticate 测试基本认证是否有效
 func (jc *JenkinsClient) Authenticate() error {
-	url := fmt.Sprintf("%s/api/json", jc.baseURL)
-	req, err := http.NewRequest("GET", url, nil)
+	apiURL := fmt.Sprintf("%s/api/json", jc.baseURL)
+	req, err := http.NewRequest("GET", apiURL, nil)
 	if err != nil {
 		return fmt.Errorf("failed to create request: %v", err)
 	}
@@ -85,8 +85,8 @@ func (jc *JenkinsClient) Authenticate() error {
 
 // CheckJobExists 检查同名的job是否存在
 func (jc *JenkinsClient) CheckJobExists(jobName string) (bool, error) {
-	url := fmt.Sprintf("%s/job/%s/api/json", jc.baseURL, jobName)
-	req, err := http.NewRequest("GET", url, nil)
+	apiURL := fmt.Sprintf("%s/job/%s/api/json", jc.baseURL, jobName)
+	req, err := http.NewRequest("GET", apiURL, nil)
 	if err != nil {
 		return false, fmt.Errorf("failed to create request: %v", err)
 	}
@@ -119,8 +119,8 @@ func (jc *JenkinsClient) CreateJob(jobName, configXML string) error {
 		return fmt.Errorf("job config XML cannot be empty")
 	}
 
-	url := fmt.Sprintf("%s/createItem?name=%s", jc.baseURL, url.QueryEscape(jobName))
-	req, err := http.NewRequest("POST", url, strings.NewReader(configXML))
+	apiURL := fmt.Sprintf("%s/createItem?name=%s", jc.baseURL, url.QueryEscape(jobName))
+	req, err := http.NewRequest("POST", apiURL, strings.NewReader(configXML))
 	if err != nil {
 		return fmt.Errorf("failed to create request: %v", err)
 	}
@@ -140,7 +140,7 @@ func (jc *JenkinsClient) CreateJob(jobName, configXML string) error {
 		log.S().Errorf(
 			"Jenkins create job failed [%d]\nURL: %s\nJob: %s\nError: %s\nXML:\n%s",
 			resp.StatusCode,
-			url,
+			apiURL,
 			jobName,
 			string(body),
 			configXML,
@@ -157,14 +157,46 @@ func (jc *JenkinsClient) CreateJob(jobName, configXML string) error {
 	return nil
 }
 
+// UpdateJob 更新一个Jenkins任务的配置XML
+func (jc *JenkinsClient) UpdateJob(jobName, configXML string) error {
+	if jobName == "" {
+		return fmt.Errorf("job name cannot be empty")
+	}
+	if configXML == "" {
+		return fmt.Errorf("job config XML cannot be empty")
+	}
+
+	apiURL := fmt.Sprintf("%s/job/%s/config.xml", jc.baseURL, url.QueryEscape(jobName))
+	req, err := http.NewRequest("POST", apiURL, strings.NewReader(configXML))
+	if err != nil {
+		return fmt.Errorf("failed to create request: %v", err)
+	}
+	req.SetBasicAuth(jc.username, jc.password)
+	req.Header.Set("Content-Type", "application/xml")
+
+	resp, err := jc.client.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to update job: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent && resp.StatusCode != http.StatusFound {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("update job failed with status %d: %s", resp.StatusCode, string(body))
+	}
+
+	log.S().Infof("Jenkins job config updated successfully: %s", jobName)
+	return nil
+}
+
 // DeleteJob 删除一个Jenkins任务
 func (jc *JenkinsClient) DeleteJob(jobName string) error {
 	if jobName == "" {
 		return fmt.Errorf("job name cannot be empty")
 	}
 
-	url := fmt.Sprintf("%s/job/%s/doDelete", jc.baseURL, url.QueryEscape(jobName))
-	req, err := http.NewRequest("POST", url, nil)
+	apiURL := fmt.Sprintf("%s/job/%s/doDelete", jc.baseURL, url.QueryEscape(jobName))
+	req, err := http.NewRequest("POST", apiURL, nil)
 	if err != nil {
 		return fmt.Errorf("failed to create request: %v", err)
 	}
@@ -196,8 +228,8 @@ func (jc *JenkinsClient) GetConsoleOutput(jobName string, buildNumber int) (stri
 		return "", fmt.Errorf("invalid job name or build number")
 	}
 
-	url := fmt.Sprintf("%s/job/%s/%d/consoleText", jc.baseURL, url.QueryEscape(jobName), buildNumber)
-	req, err := http.NewRequest("GET", url, nil)
+	apiURL := fmt.Sprintf("%s/job/%s/%d/consoleText", jc.baseURL, url.QueryEscape(jobName), buildNumber)
+	req, err := http.NewRequest("GET", apiURL, nil)
 	if err != nil {
 		return "", fmt.Errorf("failed to create request: %v", err)
 	}
@@ -228,8 +260,8 @@ func (jc *JenkinsClient) BuildJob(jobName string, params map[string]string) (*Je
 	paramStr := encodeParams(params)
 
 	// 2. 发起构建请求
-	url := fmt.Sprintf("%s/job/%s/buildWithParameters", jc.baseURL, jobName)
-	req, err := http.NewRequest("POST", url, strings.NewReader(paramStr))
+	apiURL := fmt.Sprintf("%s/job/%s/buildWithParameters", jc.baseURL, jobName)
+	req, err := http.NewRequest("POST", apiURL, strings.NewReader(paramStr))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %v", err)
 	}
@@ -273,8 +305,8 @@ func (jc *JenkinsClient) BuildJob(jobName string, params map[string]string) (*Je
 
 // GetBuildStatus 获取构建状态
 func (jc *JenkinsClient) GetBuildStatus(jobName string, buildNumber int) (*JenkinsBuildStatus, error) {
-	url := fmt.Sprintf("%s/job/%s/%d/api/json", jc.baseURL, jobName, buildNumber)
-	req, err := http.NewRequest("GET", url, nil)
+	apiURL := fmt.Sprintf("%s/job/%s/%d/api/json", jc.baseURL, jobName, buildNumber)
+	req, err := http.NewRequest("GET", apiURL, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %v", err)
 	}
@@ -328,8 +360,8 @@ func encodeParams(params map[string]string) string {
 }
 
 func (jc *JenkinsClient) getBuildNumberFromQueue(queueID int) (int, error) {
-	url := fmt.Sprintf("%s/queue/item/%d/api/json", jc.baseURL, queueID)
-	req, err := http.NewRequest("GET", url, nil)
+	apiURL := fmt.Sprintf("%s/queue/item/%d/api/json", jc.baseURL, queueID)
+	req, err := http.NewRequest("GET", apiURL, nil)
 	if err != nil {
 		return 0, fmt.Errorf("failed to create request: %v", err)
 	}
@@ -381,194 +413,114 @@ func (jc *JenkinsClient) waitForBuildNumber(jobName string, queueID int) (int, e
 	}
 }
 
-// CredentialExists 检查 Jenkins 凭据是否已存在
-func (jc *JenkinsClient) CredentialExists(id string) (bool, error) {
-	if id == "" {
-		return false, fmt.Errorf("credential id cannot be empty")
-	}
+// ---- Credentials injection via Groovy Script Console ----
 
-	apiURL := fmt.Sprintf("%s/credentials/store/system/domain/_/credential/%s/api/json", jc.baseURL, url.QueryEscape(id))
-	req, err := http.NewRequest("GET", apiURL, nil)
-	if err != nil {
-		return false, fmt.Errorf("failed to create request: %v", err)
-	}
-	req.SetBasicAuth(jc.username, jc.password)
-
-	resp, err := jc.client.Do(req)
-	if err != nil {
-		return false, fmt.Errorf("failed to check credential existence: %v", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode == http.StatusOK {
-		return true, nil
-	} else if resp.StatusCode == http.StatusNotFound {
-		return false, nil
-	}
-
-	body, _ := io.ReadAll(resp.Body)
-	return false, fmt.Errorf("unexpected status code %d checking credential %s: %s", resp.StatusCode, id, string(body))
-}
-
-// CreateOrUpdateUsernamePasswordCredential 创建或更新 Jenkins UsernamePassword 凭据
+// CreateOrUpdateUsernamePasswordCredential 通过 Groovy 脚本控制台创建或更新 UsernamePassword 凭据
 func (jc *JenkinsClient) CreateOrUpdateUsernamePasswordCredential(id, username, password, description string) error {
 	if id == "" {
 		return fmt.Errorf("credential id cannot be empty")
 	}
 
-	// 先检查是否已存在，如果存在则先删除再创建（Jenkins Credentials API 不支持直接更新）
-	exists, err := jc.CredentialExists(id)
-	if err != nil {
-		return fmt.Errorf("failed to check credential existence: %v", err)
-	}
-	if exists {
-		if err := jc.deleteCredential(id); err != nil {
-			return fmt.Errorf("failed to delete existing credential for update: %v", err)
-		}
-	}
+	// Groovy 脚本：先删除同名旧凭据，再创建新的
+	script := fmt.Sprintf(`
+import com.cloudbees.plugins.credentials.impl.UsernamePasswordCredentialsImpl
+import com.cloudbees.plugins.credentials.*
+import jenkins.model.Jenkins
 
-	xmlContent := fmt.Sprintf(`<com.cloudbees.plugins.credentials.impl.UsernamePasswordCredentialsImpl>
-  <scope>GLOBAL</scope>
-  <id>%s</id>
-  <description>%s</description>
-  <username>%s</username>
-  <password>%s</password>
-</com.cloudbees.plugins.credentials.impl.UsernamePasswordCredentialsImpl>`, xmlEscape(id), xmlEscape(description), xmlEscape(username), xmlEscape(password))
+def domain = Domain.global()
+def store = Jenkins.instance.getExtensionList('com.cloudbees.plugins.credentials.SystemCredentialsProvider')[0].getStore()
+def existing = store.getCredentials(domain).find { it.id == '%s' }
+if (existing != null) { store.removeCredentials(domain, existing) }
+store.addCredentials(domain, new UsernamePasswordCredentialsImpl(CredentialsScope.GLOBAL, '%s', '%s', '%s', '%s'))
+println "credential %s created"
+`, groovyEscape(id), groovyEscape(id), groovyEscape(description), groovyEscape(username), groovyEscape(password), groovyEscape(id))
 
-	apiURL := fmt.Sprintf("%s/credentials/store/system/domain/_/createCredentials", jc.baseURL)
-	req, err := http.NewRequest("POST", apiURL, strings.NewReader(xmlContent))
-	if err != nil {
-		return fmt.Errorf("failed to create request: %v", err)
-	}
-	req.SetBasicAuth(jc.username, jc.password)
-	req.Header.Set("Content-Type", "application/xml")
-
-	resp, err := jc.client.Do(req)
-	if err != nil {
-		return fmt.Errorf("failed to create credential: %v", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent && resp.StatusCode != http.StatusFound {
-		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("create credential failed with status %d: %s", resp.StatusCode, string(body))
-	}
-
-	log.S().Infof("Jenkins UsernamePassword credential created/updated: %s", id)
-	return nil
+	return jc.executeGroovyScript(script)
 }
 
-// CreateOrUpdateSecretTextCredential 创建或更新 Jenkins SecretText 凭据
+// CreateOrUpdateSecretTextCredential 通过 Groovy 脚本控制台创建或更新 SecretText 凭据
 func (jc *JenkinsClient) CreateOrUpdateSecretTextCredential(id, secret, description string) error {
 	if id == "" {
 		return fmt.Errorf("credential id cannot be empty")
 	}
 
-	exists, err := jc.CredentialExists(id)
-	if err != nil {
-		return fmt.Errorf("failed to check credential existence: %v", err)
-	}
-	if exists {
-		if err := jc.deleteCredential(id); err != nil {
-			return fmt.Errorf("failed to delete existing credential for update: %v", err)
-		}
-	}
+	// 优先尝试 StringCredentialsImpl（需要 plain-credentials 插件）
+	// 如果插件不存在，fallback 到 UsernamePasswordCredentialsImpl（username=id, password=secret）
+	script := fmt.Sprintf(`
+import com.cloudbees.plugins.credentials.*
+import com.cloudbees.plugins.credentials.impl.UsernamePasswordCredentialsImpl
+import jenkins.model.Jenkins
 
-	xmlContent := fmt.Sprintf(`<org.jenkinsci.plugins.plaincredentials.impl.StringCredentialsImpl>
-  <scope>GLOBAL</scope>
-  <id>%s</id>
-  <description>%s</description>
-  <secret>%s</secret>
-</org.jenkinsci.plugins.plaincredentials.impl.StringCredentialsImpl>`, xmlEscape(id), xmlEscape(description), xmlEscape(secret))
+def domain = Domain.global()
+def store = Jenkins.instance.getExtensionList('com.cloudbees.plugins.credentials.SystemCredentialsProvider')[0].getStore()
+def existing = store.getCredentials(domain).find { it.id == '%s' }
+if (existing != null) { store.removeCredentials(domain, existing) }
 
-	apiURL := fmt.Sprintf("%s/credentials/store/system/domain/_/createCredentials", jc.baseURL)
-	req, err := http.NewRequest("POST", apiURL, strings.NewReader(xmlContent))
+try {
+    import org.jenkinsci.plugins.plaincredentials.impl.StringCredentialsImpl
+    import com.cloudbees.plugins.credentials.Secret
+    store.addCredentials(domain, new StringCredentialsImpl(CredentialsScope.GLOBAL, '%s', '%s', Secret.fromString('%s')))
+    println "credential %s created as SecretText"
+} catch (Exception e) {
+    // plain-credentials 插件未安装，用 UsernamePassword 作为 fallback
+    // 在 checkout 中 withCredentials 使用 usernamePassword 时，username 变量会得到 token 的 ID，password 得到 token 值
+    store.addCredentials(domain, new UsernamePasswordCredentialsImpl(CredentialsScope.GLOBAL, '%s', '%s (token fallback)', '%s-token', '%s'))
+    println "credential %s created as UsernamePassword fallback"
+}
+`, groovyEscape(id), groovyEscape(id), groovyEscape(description), groovyEscape(secret), groovyEscape(id),
+		groovyEscape(id), groovyEscape(description), groovyEscape(id), groovyEscape(secret), groovyEscape(id))
+
+	return jc.executeGroovyScript(script)
+}
+
+// executeGroovyScript 在 Jenkins 脚本控制台上执行 Groovy 脚本
+func (jc *JenkinsClient) executeGroovyScript(script string) error {
+	apiURL := fmt.Sprintf("%s/scriptText", jc.baseURL)
+	formData := url.Values{}
+	formData.Set("script", script)
+
+	req, err := http.NewRequest("POST", apiURL, strings.NewReader(formData.Encode()))
 	if err != nil {
 		return fmt.Errorf("failed to create request: %v", err)
 	}
 	req.SetBasicAuth(jc.username, jc.password)
-	req.Header.Set("Content-Type", "application/xml")
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 
 	resp, err := jc.client.Do(req)
 	if err != nil {
-		return fmt.Errorf("failed to create credential: %v", err)
+		return fmt.Errorf("failed to execute groovy script: %v", err)
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent && resp.StatusCode != http.StatusFound {
-		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("create secret text credential failed with status %d: %s", resp.StatusCode, string(body))
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return fmt.Errorf("failed to read script response: %v", err)
 	}
 
-	log.S().Infof("Jenkins SecretText credential created/updated: %s", id)
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("groovy script failed with status %d: %s", resp.StatusCode, string(body))
+	}
+
+	// 检查输出中是否有异常信号
+	output := string(body)
+	if strings.Contains(output, "Exception:") && !strings.Contains(output, "credential") {
+		return fmt.Errorf("groovy script execution error: %s", output)
+	}
+
+	log.S().Infof("Jenkins groovy script executed successfully, output: %s", strings.TrimSpace(output))
 	return nil
 }
 
-// deleteCredential 删除 Jenkins 凭据（内部辅助方法）
-func (jc *JenkinsClient) deleteCredential(id string) error {
-	if id == "" {
-		return fmt.Errorf("credential id cannot be empty")
-	}
-
-	apiURL := fmt.Sprintf("%s/credentials/store/system/domain/_/credential/%s/doDelete", jc.baseURL, url.QueryEscape(id))
-	req, err := http.NewRequest("POST", apiURL, nil)
-	if err != nil {
-		return fmt.Errorf("failed to create request: %v", err)
-	}
-	req.SetBasicAuth(jc.username, jc.password)
-
-	resp, err := jc.client.Do(req)
-	if err != nil {
-		return fmt.Errorf("failed to delete credential: %v", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusFound && resp.StatusCode != http.StatusNoContent {
-		// 404 不算失败——凭据可能已不存在
-		if resp.StatusCode == http.StatusNotFound {
-			return nil
-		}
-		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("delete credential failed with status %d: %s", resp.StatusCode, string(body))
-	}
-
-	log.S().Infof("Jenkins credential deleted: %s", id)
-	return nil
+// groovyEscape 转义 Groovy 字串中的单引号和特殊字符（脚本用单引号定界）
+func groovyEscape(s string) string {
+	r := strings.NewReplacer(
+		"'", "\\'",
+		"\\", "\\\\",
+	)
+	return r.Replace(s)
 }
 
-// UpdateJob 更新一个Jenkins任务的配置XML
-func (jc *JenkinsClient) UpdateJob(jobName, configXML string) error {
-	if jobName == "" {
-		return fmt.Errorf("job name cannot be empty")
-	}
-	if configXML == "" {
-		return fmt.Errorf("job config XML cannot be empty")
-	}
-
-	apiURL := fmt.Sprintf("%s/job/%s/config.xml", jc.baseURL, url.QueryEscape(jobName))
-	req, err := http.NewRequest("POST", apiURL, strings.NewReader(configXML))
-	if err != nil {
-		return fmt.Errorf("failed to create request: %v", err)
-	}
-	req.SetBasicAuth(jc.username, jc.password)
-	req.Header.Set("Content-Type", "application/xml")
-
-	resp, err := jc.client.Do(req)
-	if err != nil {
-		return fmt.Errorf("failed to update job: %v", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent && resp.StatusCode != http.StatusFound {
-		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("update job failed with status %d: %s", resp.StatusCode, string(body))
-	}
-
-	log.S().Infof("Jenkins job config updated successfully: %s", jobName)
-	return nil
-}
-
-// xmlEscape 转义 XML 特殊字符，防止凭据值中的 <>&'" 导致 XML 格式错误
+// xmlEscape 转义 XML 特殊字符（用于 generateJobConfig）
 func xmlEscape(s string) string {
 	var buf strings.Builder
 	xml.Escape(&buf, []byte(s))
