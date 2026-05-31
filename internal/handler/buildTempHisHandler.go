@@ -15,6 +15,11 @@ func NewTemplateHistoryRepository(db *gorm.DB) *TemplateHistoryRepository {
 	return &TemplateHistoryRepository{db: db}
 }
 
+// GetByID 根据ID获取历史记录
+func (r *TemplateHistoryRepository) GetByID(id uint, dest *model.TemplateHistory) error {
+	return r.db.First(dest, id).Error
+}
+
 // Create 创建模板历史记录
 func (r *TemplateHistoryRepository) Create(history *model.TemplateHistory) error {
 	return r.db.Create(history).Error

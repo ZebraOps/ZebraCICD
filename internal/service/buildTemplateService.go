@@ -1,6 +1,8 @@
 package service
 
 import (
+	"fmt"
+
 	"github.com/ZebraOps/ZebraCICD/internal/handler"
 	"github.com/ZebraOps/ZebraCICD/internal/model"
 	"github.com/ZebraOps/ZebraCICD/internal/types"
@@ -86,4 +88,42 @@ func (s *BuildTemplateService) RemoveApplicationFromTemplate(templateID, applica
 // GetApplicationsByTemplateID 根据构建模板ID获取关联的应用列表
 func (s *BuildTemplateService) GetApplicationsByTemplateID(templateID uint) ([]model.ApplicationResponse, error) {
 	return s.templateRepo.GetApplicationsByTemplateID(templateID)
+}
+
+// RollbackTemplate 回退模板到指定历史版本
+func (s *BuildTemplateService) RollbackTemplate(templateID, historyID uint) (*model.BuildTemplate, error) {
+	// 获取历史记录
+	var history model.TemplateHistory
+	if err := s.historyRepo.GetByID(historyID, &history); err != nil {
+		return nil, fmt.Errorf("历史记录不存在")
+	}
+	if history.TemplateID != templateID {
+		return nil, fmt.Errorf("历史记录与模板不匹配")
+	}
+
+	// 获取当前模板
+	template, err := s.templateRepo.GetByID(templateID)
+	if err != nil {
+		return nil, fmt.Errorf("模板不存在")
+	}
+
+	// 用历史版本的内容覆盖当前模板
+	template.Dockerfile = history.Dockerfile
+	template.Pipeline = history.Pipeline
+	template.Updater = history.Modifier
+
+	if err := s.templateRepo.Update(template); err != nil {
+		return nil, fmt.Errorf("回退失败: %v", err)
+	}
+
+	// 创建新的历史记录（记录这次回退操作）
+	rollbackHistory := &model.TemplateHistory{
+		TemplateID: template.ID,
+		Modifier:   template.Updater,
+		Dockerfile: template.Dockerfile,
+		Pipeline:   template.Pipeline,
+	}
+	_ = s.historyRepo.Create(rollbackHistory)
+
+	return template, nil
 }

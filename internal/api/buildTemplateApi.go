@@ -231,6 +231,11 @@ func RegisterTemplateRoutes(r *gin.Engine, svc *service.BuildTemplateService) {
 			getBuildTemplateApplicationsHandler(c, svc)
 		})
 	}
+
+			// 回退模板到指定历史版本
+			g.POST("/:id/rollback/:historyId", func(c *gin.Context) {
+				RollbackBuildTemplateHandler(c, svc)
+			})
 }
 
 // AssociateApplicationWithTemplateHandler 关联应用和构建模板
@@ -297,4 +302,23 @@ func getBuildTemplateApplicationsHandler(c *gin.Context, svc *service.BuildTempl
 		return
 	}
 	types.Success(c, apps)
+}
+// RollbackBuildTemplateHandler 回退模板到指定历史版本
+func RollbackBuildTemplateHandler(c *gin.Context, svc *service.BuildTemplateService) {
+	templateID, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		types.Error(c, http.StatusBadRequest, "invalid template id format")
+		return
+	}
+	historyID, err := strconv.Atoi(c.Param("historyId"))
+	if err != nil {
+		types.Error(c, http.StatusBadRequest, "invalid history id format")
+		return
+	}
+	template, err := svc.RollbackTemplate(uint(templateID), uint(historyID))
+	if err != nil {
+		types.Error(c, http.StatusInternalServerError, err.Error())
+		return
+	}
+	types.Success(c, template)
 }
