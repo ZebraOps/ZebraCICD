@@ -88,7 +88,7 @@ func createDeployTaskHandler(c *gin.Context, svc *service.DeployService) {
 	}
 
 	if req.DeploymentName == "" {
-		req.DeploymentName = fmt.Sprintf("app-%d", req.ProjectID)
+		req.DeploymentName = fmt.Sprintf("app-%d", req.ProjectID) // 空值兜底，CreateTask 会用英文名覆盖
 	}
 
 	if req.GitRef == "" {

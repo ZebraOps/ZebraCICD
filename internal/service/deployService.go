@@ -91,6 +91,21 @@ func (s *DeployService) CreateTask(t *model.DeployTask) error {
 	t.Status = "PENDING"
 	t.ImageTag = time.Now().Format("20060102150405")
 
+	// 如果 DeploymentName 未指定，使用应用英文名+ProjectID生成
+	if t.DeploymentName == "" || t.DeploymentName == fmt.Sprintf("app-%d", t.ProjectID) {
+		var app model.Application
+		if err := s.db.First(&app, t.ProjectID).Error; err == nil && app.EName != "" {
+			t.DeploymentName = fmt.Sprintf("%s-%d", app.EName, t.ProjectID)
+		} else if t.DeploymentName == "" {
+			t.DeploymentName = fmt.Sprintf("app-%d", t.ProjectID)
+		}
+	}
+
+	// 同步 DeployType（兼容旧流程）
+	if t.DeployType == "" && t.DeployTarget != "" {
+		t.DeployType = t.DeployTarget
+	}
+
 	if err := s.db.Create(t).Error; err != nil {
 		return err
 	}
