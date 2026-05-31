@@ -59,6 +59,10 @@ type ApplicationDeploymentRequest struct {
 	K8sNamespace         string `gorm:"size:100;default:'default';comment:K8s命名空间" json:"k8s_namespace"`
 	ServerID             *uint  `gorm:"comment:目标服务器ID(docker/linux)" json:"server_id"`
 	DeployPath           string `gorm:"size:500;comment:部署路径(linux/Nginx代理目录)" json:"deploy_path"`
+	// 新增：平台关联字段（nullable，兼容旧数据）
+	JenkinsPlatformID    *uint  `gorm:"index;comment:Jenkins平台ID" json:"jenkins_platform_id"`
+	GitPlatformID        *uint  `gorm:"index;comment:Git平台ID" json:"git_platform_id"`
+	ImageRepoID          *uint  `gorm:"index;comment:镜像仓库ID" json:"image_repo_id"`
 }
 
 type ApplicationDeploymentResponse struct {
@@ -87,4 +91,8 @@ type ApplicationDeployment struct {
 	DeploymentTemplate *DeploymentTemplate `gorm:"foreignKey:DeploymentTemplateID" json:"deployment_template,omitempty"`
 	K8sCluster         *K8SCluster         `gorm:"foreignKey:K8sClusterID" json:"k8s_cluster,omitempty"`
 	Server             *Server             `gorm:"foreignKey:ServerID" json:"server,omitempty"`
+	// 新增：平台关联
+	JenkinsPlatform    *JenkinsPlatform    `gorm:"foreignKey:JenkinsPlatformID" json:"jenkins_platform,omitempty"`
+	GitPlatform        *GitPlatform        `gorm:"foreignKey:GitPlatformID" json:"git_platform,omitempty"`
+	ImageRepository    *ImageRepository    `gorm:"foreignKey:ImageRepoID" json:"image_repository,omitempty"`
 }
