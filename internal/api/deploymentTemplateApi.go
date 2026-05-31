@@ -186,12 +186,29 @@ func GetDeploymentTemplateHistoryHandler(c *gin.Context, svc *service.Deployment
 		return
 	}
 
-	history, err := svc.GetDeploymentTemplateHistory(uint(templateID))
+	// 解析分页参数
+	page := 1
+	size := 10
+	if pageStr := c.Query("page"); pageStr != "" {
+		if p, err := strconv.Atoi(pageStr); err == nil && p > 0 {
+			page = p
+		}
+	}
+	if sizeStr := c.Query("size"); sizeStr != "" {
+		if s, err := strconv.Atoi(sizeStr); err == nil && s > 0 {
+			size = s
+		}
+	}
+
+	// 调用服务层获取分页数据
+	history, total, err := svc.GetDeploymentTemplateHistoryPaginated(uint(templateID), page, size)
 	if err != nil {
 		types.Error(c, http.StatusInternalServerError, err.Error())
 		return
 	}
-	types.Success(c, history)
+
+	// 返回分页结果
+	types.PageSuccess(c, total, history)
 }
 
 // RegisterDeploymentTemplateRoutes 注册部署模板相关路由
@@ -242,6 +259,11 @@ func RegisterDeploymentTemplateRoutes(r *gin.Engine, svc *service.DeploymentTemp
 		g.GET("/:id/applications", func(c *gin.Context) {
 			GetApplicationsByDeployTemplateHandler(c, svc)
 		})
+
+			// 回退部署模板到指定历史版本
+			g.POST("/:id/rollback/:historyId", func(c *gin.Context) {
+				RollbackDeploymentTemplateHandler(c, svc)
+			})
 	}
 }
 
@@ -311,4 +333,23 @@ func GetApplicationsByDeployTemplateHandler(c *gin.Context, svc *service.Deploym
 	}
 
 	types.Success(c, apps)
+}
+// RollbackDeploymentTemplateHandler 回退部署模板到指定历史版本
+func RollbackDeploymentTemplateHandler(c *gin.Context, svc *service.DeploymentTemplateService) {
+	templateID, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		types.Error(c, http.StatusBadRequest, "invalid template id format")
+		return
+	}
+	historyID, err := strconv.Atoi(c.Param("historyId"))
+	if err != nil {
+		types.Error(c, http.StatusBadRequest, "invalid history id format")
+		return
+	}
+	template, err := svc.RollbackDeploymentTemplate(uint(templateID), uint(historyID))
+	if err != nil {
+		types.Error(c, http.StatusInternalServerError, err.Error())
+		return
+	}
+	types.Success(c, template)
 }

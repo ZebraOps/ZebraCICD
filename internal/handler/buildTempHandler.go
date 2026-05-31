@@ -1,6 +1,8 @@
 package handler
 
 import (
+	"strings"
+
 	"gorm.io/gorm"
 
 	"github.com/ZebraOps/ZebraCICD/internal/model"
@@ -72,20 +74,43 @@ func (r *BuildTemplateRepository) Update(template *model.BuildTemplate) error {
 	return r.db.Save(template).Error
 }
 
-// Delete 删除模板
+// Delete 删除模板，并删除关联的历史记录和多对多关联
 func (r *BuildTemplateRepository) Delete(id uint) error {
-	// 先删除关联的历史记录
-	if err := r.db.Where("template_id = ?", id).Delete(&model.TemplateHistory{}).Error; err != nil {
-		return err
-	}
+	return r.db.Transaction(func(tx *gorm.DB) error {
+		// 1. 删除关联的历史记录
+		if err := tx.Where("template_id = ?", id).Delete(&model.TemplateHistory{}).Error; err != nil {
+			return err
+		}
 
-	// 删除多对多关联 build_template_applications
-	if err := r.db.Exec("DELETE FROM build_template_applications WHERE build_template_id = ?", id).Error; err != nil {
-		return err
-	}
+		// 2. 删除多对多关联 build_template_applications
+		if err := tx.Exec("DELETE FROM build_template_applications WHERE build_template_id = ?", id).Error; err != nil {
+			return err
+		}
 
-	// 再删除模板记录
-	return r.db.Delete(&model.BuildTemplate{}, id).Error
+		// 3. 删除历史遗留的 repo_templates 关联表记录
+		if err := tx.Exec("DELETE FROM repo_templates WHERE build_template_id = ?", id).Error; err != nil {
+			// repo_templates 表可能不存在（新版本已废弃），忽略错误
+			// 只处理外键约束导致的冲突，表不存在时此处会跳过
+			if !isTableNotExistError(err) {
+				return err
+			}
+		}
+
+		// 4. 删除模板记录
+		return tx.Delete(&model.BuildTemplate{}, id).Error
+	})
+}
+
+// isTableNotExistError 判断是否为"表不存在"类型的错误
+func isTableNotExistError(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := err.Error()
+	// PostgreSQL: relation/table does not exist
+	return strings.Contains(msg, "does not exist") ||
+		strings.Contains(msg, "not exist") ||
+		strings.Contains(msg, "no such table")
 }
 
 // AddApplicationToTemplate 添加模板到应用关联

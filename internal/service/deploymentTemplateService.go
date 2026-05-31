@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/ZebraOps/ZebraCICD/internal/handler"
 	"github.com/ZebraOps/ZebraCICD/internal/model"
@@ -115,7 +116,59 @@ func (s *DeploymentTemplateService) GetDeploymentTemplateHistory(templateID uint
 	return s.historyRepo.GetHistoryByTemplateID(templateID)
 }
 
+// GetDeploymentTemplateHistoryPaginated 获取部署模板历史记录（分页）
+func (s *DeploymentTemplateService) GetDeploymentTemplateHistoryPaginated(templateID uint, page, size int) ([]types.DeploymentTemplateHistoryResponse, int64, error) {
+	return s.historyRepo.GetHistoryByTemplateIDPaginated(templateID, page, size)
+}
+
 // GetLatestHistory 获取最新的历史记录
 func (s *DeploymentTemplateService) GetLatestHistory(templateID uint) (*model.DeploymentTemplateHistory, error) {
 	return s.historyRepo.GetLatestHistory(templateID)
+}
+
+// RollbackDeploymentTemplate 回退部署模板到指定历史版本
+func (s *DeploymentTemplateService) RollbackDeploymentTemplate(templateID, historyID uint) (*model.DeploymentTemplate, error) {
+	history, err := s.historyRepo.GetByID(historyID)
+	if err != nil {
+		return nil, fmt.Errorf("历史记录不存在")
+	}
+	if history.DeploymentTemplateID != templateID {
+		return nil, fmt.Errorf("历史记录与模板不匹配")
+	}
+
+	template, err := s.templateRepo.GetByID(context.Background(), templateID)
+	if err != nil {
+		return nil, fmt.Errorf("模板不存在")
+	}
+
+	template.Name = history.Name
+	template.DisplayName = history.DisplayName
+	template.Description = history.Description
+	template.TemplateType = history.TemplateType
+	template.Content = history.Content
+	template.Variables = history.Variables
+	template.Parameters = history.Parameters
+	template.Version = history.Version
+	template.Updater = history.Modifier
+
+	if err := s.templateRepo.Update(template); err != nil {
+		return nil, fmt.Errorf("回退失败: %v", err)
+	}
+
+	rollbackHistory := &model.DeploymentTemplateHistory{
+		DeploymentTemplateID: template.ID,
+		Modifier:             template.Updater,
+		Name:                 template.Name,
+		DisplayName:          template.DisplayName,
+		Description:          template.Description,
+		TemplateType:         template.TemplateType,
+		Content:              template.Content,
+		Variables:            template.Variables,
+		Parameters:           template.Parameters,
+		Version:              template.Version,
+		ChangeReason:         "回退到历史版本 #" + fmt.Sprintf("%d", historyID),
+	}
+	_ = s.historyRepo.Create(rollbackHistory)
+
+	return template, nil
 }

@@ -2,6 +2,7 @@ package handler
 
 import (
 	"github.com/ZebraOps/ZebraCICD/internal/model"
+	"github.com/ZebraOps/ZebraCICD/internal/types"
 	"gorm.io/gorm"
 )
 
@@ -11,6 +12,15 @@ type DeploymentTemplateHistoryRepository struct {
 
 func NewDeploymentTemplateHistoryRepository(db *gorm.DB) *DeploymentTemplateHistoryRepository {
 	return &DeploymentTemplateHistoryRepository{db: db}
+}
+
+// GetByID 根据ID获取历史记录
+func (r *DeploymentTemplateHistoryRepository) GetByID(id uint) (*model.DeploymentTemplateHistory, error) {
+	var history model.DeploymentTemplateHistory
+	if err := r.db.First(&history, id).Error; err != nil {
+		return nil, err
+	}
+	return &history, nil
 }
 
 // Create 创建部署模板历史记录
@@ -34,4 +44,43 @@ func (r *DeploymentTemplateHistoryRepository) GetLatestHistory(templateID uint) 
 		return nil, err
 	}
 	return &history, nil
+}
+
+// GetHistoryByTemplateIDPaginated 根据部署模板ID获取历史记录（分页）
+func (r *DeploymentTemplateHistoryRepository) GetHistoryByTemplateIDPaginated(templateID uint, page, size int) ([]types.DeploymentTemplateHistoryResponse, int64, error) {
+	var histories []model.DeploymentTemplateHistory
+	var count int64
+
+	// 查询总数
+	if err := r.db.Model(&model.DeploymentTemplateHistory{}).Where("deployment_template_id = ?", templateID).Count(&count).Error; err != nil {
+		return nil, 0, err
+	}
+
+	// 分页查询
+	offset := (page - 1) * size
+	if err := r.db.Where("deployment_template_id = ?", templateID).Order("created_at DESC").Offset(offset).Limit(size).Find(&histories).Error; err != nil {
+		return nil, 0, err
+	}
+
+	// 转换为响应类型
+	responses := make([]types.DeploymentTemplateHistoryResponse, len(histories))
+	for i, history := range histories {
+		responses[i] = types.DeploymentTemplateHistoryResponse{
+			ID:                   history.ID,
+			DeploymentTemplateID: history.DeploymentTemplateID,
+			Modifier:             history.Modifier,
+			Name:                 history.Name,
+			DisplayName:          history.DisplayName,
+			Description:          history.Description,
+			TemplateType:         history.TemplateType,
+			Content:              history.Content,
+			Variables:            history.Variables,
+			Parameters:           history.Parameters,
+			Version:              history.Version,
+			ChangeReason:         history.ChangeReason,
+			CreatedAt:            history.CreatedAt,
+		}
+	}
+
+	return responses, count, nil
 }

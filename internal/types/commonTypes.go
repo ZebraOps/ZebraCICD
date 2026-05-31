@@ -101,6 +101,23 @@ type CloudProviderQueryConditions struct {
 	Status   string `json:"status"`
 }
 
+// DeploymentTemplateHistoryResponse 部署模板修改历史响应结构
+type DeploymentTemplateHistoryResponse struct {
+	ID                   uint              `json:"id"`
+	DeploymentTemplateID uint              `json:"deployment_template_id"`
+	Modifier             string            `json:"modifier"`
+	Name                 string            `json:"name"`
+	DisplayName          string            `json:"display_name"`
+	Description          string            `json:"description"`
+	TemplateType         string            `json:"template_type"`
+	Content              string            `json:"content"`
+	Variables            string            `json:"variables"`
+	Parameters           string            `json:"parameters"`
+	Version              string            `json:"version"`
+	ChangeReason         string            `json:"change_reason"`
+	CreatedAt            timeutil.JSONTime `json:"created_at"`
+}
+
 type DeploymentTemplateQueryConditions struct {
 	Name         string `json:"name"`
 	TemplateType string `json:"template_type"`

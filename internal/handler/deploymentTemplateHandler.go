@@ -89,7 +89,13 @@ func (r *DeploymentTemplateRepository) Delete(id uint) error {
 		if err := tx.Exec("DELETE FROM deployment_template_applications WHERE deployment_template_id = ?", id).Error; err != nil {
 			return err
 		}
-		// 3. 删除部署模板（硬删除）
+		// 3. 删除历史遗留的 repo_templates 关联表记录（部署模板也可能有残留）
+		if err := tx.Exec("DELETE FROM repo_templates WHERE deployment_template_id = ?", id).Error; err != nil {
+			if !isTableNotExistError(err) {
+				return err
+			}
+		}
+		// 4. 删除部署模板（硬删除）
 		if err := tx.Where("id = ?", id).Delete(&model.DeploymentTemplate{}).Error; err != nil {
 			return err
 		}
