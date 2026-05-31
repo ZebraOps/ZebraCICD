@@ -172,7 +172,7 @@ func main() {
 	serverRepo := handler.NewServerRepository(db)
 	deploySvc := service.NewDeployService(db, cfg, queueClient, serverRepo)
 	repoRepo := handler.NewRepoRepository(db)
-	repoSvc := service.NewRepoService(repoRepo, gitlabClient, cfg.GitLabURL)
+	repoSvc := service.NewRepoService(repoRepo, gitlabClient, cfg.GitLabURL, db)
 
 	// 模板相关的 Repository 和 Service
 	buildTemplateRepo := handler.NewBuildTemplateRepository(db)

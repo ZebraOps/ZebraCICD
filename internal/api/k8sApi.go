@@ -313,10 +313,31 @@ func RegisterK8SRoutes(r *gin.Engine, svc *service.K8SService) {
 				ListPodsHandler(c, svc)
 			})
 
+				// 获取命名空间列表
+				clusters.GET("/:id/namespaces", func(c *gin.Context) {
+					ListNamespacesHandler(c, svc)
+				})
+
 			// 删除集群
 			clusters.DELETE("/:id", func(c *gin.Context) {
 				DeleteClusterHandler(c, svc)
 			})
 		}
 	}
+}
+
+func ListNamespacesHandler(c *gin.Context, svc *service.K8SService) {
+	idStr := c.Param("id")
+	id, err := strconv.Atoi(idStr)
+	if err != nil {
+		types.Error(c, http.StatusBadRequest, "invalid id format")
+		return
+	}
+
+	namespaces, err := svc.ListNamespaces(uint(id))
+	if err != nil {
+		types.Error(c, http.StatusInternalServerError, err.Error())
+		return
+	}
+	types.Success(c, namespaces)
 }

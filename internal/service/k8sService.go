@@ -163,3 +163,27 @@ func (s *K8SService) DeleteCluster(clusterID uint) error {
 func (s *K8SService) ListClustersWithConditions(conditions types.ClusterQueryConditions, page, size int) ([]model.K8SCluster, int64, error) {
 	return s.clusterRepo.ListWithConditions(conditions, page, size)
 }
+
+// ListNamespaces 根据集群ID动态获取命名空间列表
+func (s *K8SService) ListNamespaces(clusterID uint) ([]string, error) {
+	cluster, err := s.clusterRepo.GetByID(clusterID)
+	if err != nil {
+		return nil, fmt.Errorf("集群 %d 不存在: %v", clusterID, err)
+	}
+
+	clientset, err := s.createK8sClient(cluster)
+	if err != nil {
+		return nil, fmt.Errorf("创建K8s客户端失败: %v", err)
+	}
+
+	nsList, err := clientset.CoreV1().Namespaces().List(context.TODO(), metav1.ListOptions{})
+	if err != nil {
+		return nil, fmt.Errorf("获取命名空间列表失败: %v", err)
+	}
+
+	names := make([]string, 0, len(nsList.Items))
+	for _, ns := range nsList.Items {
+		names = append(names, ns.Name)
+	}
+	return names, nil
+}
