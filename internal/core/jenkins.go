@@ -536,6 +536,38 @@ func (jc *JenkinsClient) deleteCredential(id string) error {
 	return nil
 }
 
+// UpdateJob 更新一个Jenkins任务的配置XML
+func (jc *JenkinsClient) UpdateJob(jobName, configXML string) error {
+	if jobName == "" {
+		return fmt.Errorf("job name cannot be empty")
+	}
+	if configXML == "" {
+		return fmt.Errorf("job config XML cannot be empty")
+	}
+
+	apiURL := fmt.Sprintf("%s/job/%s/config.xml", jc.baseURL, url.QueryEscape(jobName))
+	req, err := http.NewRequest("POST", apiURL, strings.NewReader(configXML))
+	if err != nil {
+		return fmt.Errorf("failed to create request: %v", err)
+	}
+	req.SetBasicAuth(jc.username, jc.password)
+	req.Header.Set("Content-Type", "application/xml")
+
+	resp, err := jc.client.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to update job: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent && resp.StatusCode != http.StatusFound {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("update job failed with status %d: %s", resp.StatusCode, string(body))
+	}
+
+	log.S().Infof("Jenkins job config updated successfully: %s", jobName)
+	return nil
+}
+
 // xmlEscape 转义 XML 特殊字符，防止凭据值中的 <>&'" 导致 XML 格式错误
 func xmlEscape(s string) string {
 	var buf strings.Builder

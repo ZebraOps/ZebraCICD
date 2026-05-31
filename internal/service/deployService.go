@@ -338,17 +338,24 @@ func (s *DeployService) triggerJenkinsBuild(task *model.DeployTask) (*core.Jenki
 		gitCredsID = "gitlab_user_orange"
 	}
 
-	// 5. 检查 Jenkins Job 是否存在，不存在则创建
+	// 5. 检查 Jenkins Job 是否存在，不存在则创建；已存在则更新配置
 	jobExists, err := jenkinsClient.CheckJobExists(task.JenkinsJobName)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to check job existence: %v", err)
 	}
 
+	jobConfig := s.generateJobConfig(buildTemplate, task.GitRef, repo.RepoURL, task.ImageTag)
 	if !jobExists {
 		fmt.Fprintf(os.Stdout, "Jenkins Job %s does not exist, creating...\n", task.JenkinsJobName)
-		jobConfig := s.generateJobConfig(buildTemplate, task.GitRef, repo.RepoURL, task.ImageTag)
 		if err := jenkinsClient.CreateJob(task.JenkinsJobName, jobConfig); err != nil {
 			return nil, nil, fmt.Errorf("failed to create job: %v", err)
+		}
+	} else {
+		// Job 已存在，更新其配置以确保参数列表和 pipeline 内容与模板一致
+		if err := jenkinsClient.UpdateJob(task.JenkinsJobName, jobConfig); err != nil {
+			log.S().Warnf("Failed to update Jenkins job %s config: %v, continuing with existing config", task.JenkinsJobName, err)
+		} else {
+			log.S().Infof("Jenkins job %s config updated to match latest template", task.JenkinsJobName)
 		}
 	}
 
