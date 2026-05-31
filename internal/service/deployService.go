@@ -1243,6 +1243,42 @@ func (s *DeployService) generateJobConfig(template *model.BuildTemplate, targetB
 					<defaultValue></defaultValue>
 					<trim>false</trim>
 				</hudson.model.StringParameterDefinition>
+				<hudson.model.StringParameterDefinition>
+					<name>HARBOR_REGISTRY</name>
+					<description>Image registry URL</description>
+					<defaultValue></defaultValue>
+					<trim>false</trim>
+				</hudson.model.StringParameterDefinition>
+				<hudson.model.StringParameterDefinition>
+					<name>HARBOR_PROJECT</name>
+					<description>Image registry project</description>
+					<defaultValue></defaultValue>
+					<trim>false</trim>
+				</hudson.model.StringParameterDefinition>
+				<hudson.model.StringParameterDefinition>
+					<name>IMAGE_NAME</name>
+					<description>Image name</description>
+					<defaultValue></defaultValue>
+					<trim>false</trim>
+				</hudson.model.StringParameterDefinition>
+				<hudson.model.StringParameterDefinition>
+					<name>HARBOR_CREDS_ID</name>
+					<description>Harbor credential ID in Jenkins</description>
+					<defaultValue></defaultValue>
+					<trim>false</trim>
+				</hudson.model.StringParameterDefinition>
+				<hudson.model.StringParameterDefinition>
+					<name>GIT_CREDS_ID</name>
+					<description>Git credential ID in Jenkins</description>
+					<defaultValue></defaultValue>
+					<trim>false</trim>
+				</hudson.model.StringParameterDefinition>
+				<hudson.model.StringParameterDefinition>
+					<name>DEPLOY_TARGET</name>
+					<description>Deployment target (k8s/docker/linux)</description>
+					<defaultValue>k8s</defaultValue>
+					<trim>false</trim>
+				</hudson.model.StringParameterDefinition>
 			</parameterDefinitions>
 		</hudson.model.ParametersDefinitionProperty>
 		<jenkins.model.BuildDiscarderProperty>
