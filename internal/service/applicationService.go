@@ -316,6 +316,9 @@ func (s *ApplicationService) UpdateApplicationDeployment(id uint, req *model.App
 	existingDeployment.K8sNamespace = req.K8sNamespace
 	existingDeployment.ServerID = req.ServerID
 	existingDeployment.DeployPath = req.DeployPath
+	existingDeployment.JenkinsPlatformID = req.JenkinsPlatformID
+	existingDeployment.GitPlatformID = req.GitPlatformID
+	existingDeployment.ImageRepoID = req.ImageRepoID
 
 	if err := s.deployRepo.Update(existingDeployment); err != nil {
 		return nil, err
