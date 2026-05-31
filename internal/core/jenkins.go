@@ -2,6 +2,7 @@ package core
 
 import (
 	"encoding/json"
+	"encoding/xml"
 	"fmt"
 	"io"
 	"net/http"
@@ -432,7 +433,7 @@ func (jc *JenkinsClient) CreateOrUpdateUsernamePasswordCredential(id, username, 
   <description>%s</description>
   <username>%s</username>
   <password>%s</password>
-</com.cloudbees.plugins.credentials.impl.UsernamePasswordCredentialsImpl>`, id, description, username, password)
+</com.cloudbees.plugins.credentials.impl.UsernamePasswordCredentialsImpl>`, xmlEscape(id), xmlEscape(description), xmlEscape(username), xmlEscape(password))
 
 	apiURL := fmt.Sprintf("%s/credentials/store/system/domain/_/createCredentials", jc.baseURL)
 	req, err := http.NewRequest("POST", apiURL, strings.NewReader(xmlContent))
@@ -478,7 +479,7 @@ func (jc *JenkinsClient) CreateOrUpdateSecretTextCredential(id, secret, descript
   <id>%s</id>
   <description>%s</description>
   <secret>%s</secret>
-</org.jenkinsci.plugins.plaincredentials.impl.StringCredentialsImpl>`, id, description, secret)
+</org.jenkinsci.plugins.plaincredentials.impl.StringCredentialsImpl>`, xmlEscape(id), xmlEscape(description), xmlEscape(secret))
 
 	apiURL := fmt.Sprintf("%s/credentials/store/system/domain/_/createCredentials", jc.baseURL)
 	req, err := http.NewRequest("POST", apiURL, strings.NewReader(xmlContent))
@@ -533,4 +534,11 @@ func (jc *JenkinsClient) deleteCredential(id string) error {
 
 	log.S().Infof("Jenkins credential deleted: %s", id)
 	return nil
+}
+
+// xmlEscape 转义 XML 特殊字符，防止凭据值中的 <>&'" 导致 XML 格式错误
+func xmlEscape(s string) string {
+	var buf strings.Builder
+	xml.Escape(&buf, []byte(s))
+	return buf.String()
 }
