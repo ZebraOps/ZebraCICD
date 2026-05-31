@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"strings"
@@ -191,7 +192,7 @@ func (s *DeployService) ProcessDeploymentTask(ctx context.Context, taskID uint) 
 	return nil
 }
 
-// triggerJenkinsBuild 触发Jenkins构建
+// triggerJenkinsBuild 触发Jenkins构建（支持平台配置注入）
 func (s *DeployService) triggerJenkinsBuild(task *model.DeployTask) (*core.JenkinsBuildResult, error) {
 	// 1. 根据应用ID获取关联仓库
 	var app model.Application
@@ -218,8 +219,126 @@ func (s *DeployService) triggerJenkinsBuild(task *model.DeployTask) (*core.Jenki
 		return nil, fmt.Errorf("no build template specified for task %d", task.ID)
 	}
 
-	// 3. 检查 Jenkins Job 是否存在，不存在则创建
-	jobExists, err := s.jenkins.CheckJobExists(task.JenkinsJobName)
+	// 3. 查找 ApplicationDeployment 以获取平台关联配置
+	var appDeploy model.ApplicationDeployment
+	jenkinsClient := s.jenkins // 默认使用全局 Jenkins 客户端
+	var harborCredsID string
+	var gitCredsID string
+	var harborRegistry string
+	var harborProject string
+	var imageName string
+
+	// 尝试查找部署配置来获取平台关联
+	if err := s.db.Where("application_id = ? AND environment_id = ?", task.ProjectID, task.EnvID).First(&appDeploy).Error; err == nil {
+		// 查到了部署配置，使用平台关联数据
+
+		// 3a. Jenkins 平台：如果关联了，创建专用客户端
+		if appDeploy.JenkinsPlatformID != nil && *appDeploy.JenkinsPlatformID > 0 {
+			var jenkinsPlatform model.JenkinsPlatform
+			if err := s.db.First(&jenkinsPlatform, *appDeploy.JenkinsPlatformID).Error; err == nil {
+				jenkinsClient = core.NewJenkinsClient(jenkinsPlatform.URL, jenkinsPlatform.Username, jenkinsPlatform.Password)
+				log.S().Infof("Using Jenkins platform %s (ID=%d) for task %d", jenkinsPlatform.Name, jenkinsPlatform.ID, task.ID)
+			} else {
+				log.S().Warnf("Failed to load JenkinsPlatform %d, falling back to global config: %v", *appDeploy.JenkinsPlatformID, err)
+			}
+		}
+
+		// 3b. 镜像仓库：注入 Harbor 凭据
+		if appDeploy.ImageRepoID != nil && *appDeploy.ImageRepoID > 0 {
+			var imageRepo model.ImageRepository
+			if err := s.db.First(&imageRepo, *appDeploy.ImageRepoID).Error; err == nil {
+				harborCredsID = fmt.Sprintf("zebra-harbor-%d", imageRepo.ID)
+				harborRegistry = imageRepo.URL
+				// 注入 Harbor 凭据到 Jenkins
+				if err := jenkinsClient.CreateOrUpdateUsernamePasswordCredential(
+					harborCredsID,
+					imageRepo.Username,
+					imageRepo.Password,
+					fmt.Sprintf("ZebraOps Harbor Credential (%s)", imageRepo.Name),
+				); err != nil {
+					log.S().Warnf("Failed to inject Harbor credential %s: %v", harborCredsID, err)
+					// 不阻断流程——凭据可能已存在
+				} else {
+					log.S().Infof("Harbor credential %s injected into Jenkins", harborCredsID)
+				}
+			} else {
+				log.S().Warnf("Failed to load ImageRepository %d: %v", *appDeploy.ImageRepoID, err)
+			}
+		}
+
+		// 3c. Git 平台：注入 Git 凭据
+		if appDeploy.GitPlatformID != nil && *appDeploy.GitPlatformID > 0 {
+			var gitPlatform model.GitPlatform
+			if err := s.db.First(&gitPlatform, *appDeploy.GitPlatformID).Error; err == nil {
+				gitCredsID = fmt.Sprintf("zebra-git-%d", gitPlatform.ID)
+				// 根据 AuthType 创建不同类型的凭据
+				switch gitPlatform.AuthType {
+				case "token":
+					// 解析 AuthConfig JSON 获取 token
+					var authConfig struct {
+						Token string `json:"token"`
+					}
+					if err := json.Unmarshal([]byte(gitPlatform.AuthConfig), &authConfig); err == nil && authConfig.Token != "" {
+						if err := jenkinsClient.CreateOrUpdateSecretTextCredential(
+							gitCredsID,
+							authConfig.Token,
+							fmt.Sprintf("ZebraOps Git Token (%s)", gitPlatform.Name),
+						); err != nil {
+							log.S().Warnf("Failed to inject Git token credential %s: %v", gitCredsID, err)
+						} else {
+							log.S().Infof("Git token credential %s injected into Jenkins", gitCredsID)
+						}
+					}
+				case "password":
+					// 解析 AuthConfig JSON 获取 username/password
+					var authConfig struct {
+						Username string `json:"username"`
+						Password string `json:"password"`
+					}
+					if err := json.Unmarshal([]byte(gitPlatform.AuthConfig), &authConfig); err == nil {
+						if err := jenkinsClient.CreateOrUpdateUsernamePasswordCredential(
+							gitCredsID,
+							authConfig.Username,
+							authConfig.Password,
+							fmt.Sprintf("ZebraOps Git Credential (%s)", gitPlatform.Name),
+						); err != nil {
+							log.S().Warnf("Failed to inject Git credential %s: %v", gitCredsID, err)
+						} else {
+							log.S().Infof("Git credential %s injected into Jenkins", gitCredsID)
+						}
+					}
+				default:
+					log.S().Warnf("Unsupported Git auth type %s for platform %d", gitPlatform.AuthType, gitPlatform.ID)
+				}
+			} else {
+				log.S().Warnf("Failed to load GitPlatform %d: %v", *appDeploy.GitPlatformID, err)
+			}
+		}
+	} else {
+		log.S().Infof("No ApplicationDeployment found for app=%d env=%d, using global config fallback", task.ProjectID, task.EnvID)
+	}
+
+	// 4. Fallback：如果平台关联未设置，使用全局配置
+	if harborRegistry == "" {
+		harborRegistry = s.cfg.HarborURL
+	}
+	if harborProject == "" {
+		harborProject = task.HarborProject
+	}
+	if imageName == "" {
+		imageName = task.ImageName
+	}
+	if harborCredsID == "" {
+		// 未配置平台关联时，凭据 ID 使用约定值 "harbor-creds"
+		// 注意：这依赖 Jenkins 中已有手动创建的 harbor-creds 凭据
+		harborCredsID = "harbor-creds"
+	}
+	if gitCredsID == "" {
+		gitCredsID = "gitlab_user_orange"
+	}
+
+	// 5. 检查 Jenkins Job 是否存在，不存在则创建
+	jobExists, err := jenkinsClient.CheckJobExists(task.JenkinsJobName)
 	if err != nil {
 		return nil, fmt.Errorf("failed to check job existence: %v", err)
 	}
@@ -227,23 +346,31 @@ func (s *DeployService) triggerJenkinsBuild(task *model.DeployTask) (*core.Jenki
 	if !jobExists {
 		fmt.Fprintf(os.Stdout, "Jenkins Job %s does not exist, creating...\n", task.JenkinsJobName)
 		jobConfig := s.generateJobConfig(buildTemplate, task.GitRef, repo.RepoURL, task.ImageTag)
-		if err := s.jenkins.CreateJob(task.JenkinsJobName, jobConfig); err != nil {
+		if err := jenkinsClient.CreateJob(task.JenkinsJobName, jobConfig); err != nil {
 			return nil, fmt.Errorf("failed to create job: %v", err)
 		}
 	}
 
-	params := map[string]string{
-		"TARGET_BRANCH": task.GitRef,
-		"Repo_URL":      repo.RepoURL,
-		"Tag":           task.ImageTag,
-	}
-
-	if err := s.jenkins.Authenticate(); err != nil {
+	// 6. 鉴权
+	if err := jenkinsClient.Authenticate(); err != nil {
 		return nil, fmt.Errorf("Jenkins authentication failed: %v", err)
 	}
 	fmt.Println("开始触发Jenkins构建")
 
-	return s.jenkins.BuildJob(task.JenkinsJobName, params)
+	// 7. 构建参数——包含平台注入的非敏感数据和凭据 ID
+	params := map[string]string{
+		"TARGET_BRANCH":   task.GitRef,
+		"Repo_URL":        repo.RepoURL,
+		"Tag":             task.ImageTag,
+		"HARBOR_REGISTRY": harborRegistry,
+		"HARBOR_PROJECT":  harborProject,
+		"IMAGE_NAME":      imageName,
+		"HARBOR_CREDS_ID": harborCredsID,
+		"GIT_CREDS_ID":    gitCredsID,
+		"DEPLOY_TARGET":   task.DeployTarget,
+	}
+
+	return jenkinsClient.BuildJob(task.JenkinsJobName, params)
 }
 
 // waitForJenkinsBuild 等待Jenkins构建完成
