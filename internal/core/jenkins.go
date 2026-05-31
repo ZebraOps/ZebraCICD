@@ -379,3 +379,158 @@ func (jc *JenkinsClient) waitForBuildNumber(jobName string, queueID int) (int, e
 		}
 	}
 }
+
+// CredentialExists 检查 Jenkins 凭据是否已存在
+func (jc *JenkinsClient) CredentialExists(id string) (bool, error) {
+	if id == "" {
+		return false, fmt.Errorf("credential id cannot be empty")
+	}
+
+	apiURL := fmt.Sprintf("%s/credentials/store/system/domain/_/credential/%s/api/json", jc.baseURL, url.QueryEscape(id))
+	req, err := http.NewRequest("GET", apiURL, nil)
+	if err != nil {
+		return false, fmt.Errorf("failed to create request: %v", err)
+	}
+	req.SetBasicAuth(jc.username, jc.password)
+
+	resp, err := jc.client.Do(req)
+	if err != nil {
+		return false, fmt.Errorf("failed to check credential existence: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusOK {
+		return true, nil
+	} else if resp.StatusCode == http.StatusNotFound {
+		return false, nil
+	}
+
+	body, _ := io.ReadAll(resp.Body)
+	return false, fmt.Errorf("unexpected status code %d checking credential %s: %s", resp.StatusCode, id, string(body))
+}
+
+// CreateOrUpdateUsernamePasswordCredential 创建或更新 Jenkins UsernamePassword 凭据
+func (jc *JenkinsClient) CreateOrUpdateUsernamePasswordCredential(id, username, password, description string) error {
+	if id == "" {
+		return fmt.Errorf("credential id cannot be empty")
+	}
+
+	// 先检查是否已存在，如果存在则先删除再创建（Jenkins Credentials API 不支持直接更新）
+	exists, err := jc.CredentialExists(id)
+	if err != nil {
+		return fmt.Errorf("failed to check credential existence: %v", err)
+	}
+	if exists {
+		if err := jc.deleteCredential(id); err != nil {
+			return fmt.Errorf("failed to delete existing credential for update: %v", err)
+		}
+	}
+
+	xmlContent := fmt.Sprintf(`<com.cloudbees.plugins.credentials.impl.UsernamePasswordCredentialsImpl>
+  <scope>GLOBAL</scope>
+  <id>%s</id>
+  <description>%s</description>
+  <username>%s</username>
+  <password>%s</password>
+</com.cloudbees.plugins.credentials.impl.UsernamePasswordCredentialsImpl>`, id, description, username, password)
+
+	apiURL := fmt.Sprintf("%s/credentials/store/system/domain/_/createCredentials", jc.baseURL)
+	req, err := http.NewRequest("POST", apiURL, strings.NewReader(xmlContent))
+	if err != nil {
+		return fmt.Errorf("failed to create request: %v", err)
+	}
+	req.SetBasicAuth(jc.username, jc.password)
+	req.Header.Set("Content-Type", "application/xml")
+
+	resp, err := jc.client.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to create credential: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent && resp.StatusCode != http.StatusFound {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("create credential failed with status %d: %s", resp.StatusCode, string(body))
+	}
+
+	log.S().Infof("Jenkins UsernamePassword credential created/updated: %s", id)
+	return nil
+}
+
+// CreateOrUpdateSecretTextCredential 创建或更新 Jenkins SecretText 凭据
+func (jc *JenkinsClient) CreateOrUpdateSecretTextCredential(id, secret, description string) error {
+	if id == "" {
+		return fmt.Errorf("credential id cannot be empty")
+	}
+
+	exists, err := jc.CredentialExists(id)
+	if err != nil {
+		return fmt.Errorf("failed to check credential existence: %v", err)
+	}
+	if exists {
+		if err := jc.deleteCredential(id); err != nil {
+			return fmt.Errorf("failed to delete existing credential for update: %v", err)
+		}
+	}
+
+	xmlContent := fmt.Sprintf(`<org.jenkinsci.plugins.plaincredentials.impl.StringCredentialsImpl>
+  <scope>GLOBAL</scope>
+  <id>%s</id>
+  <description>%s</description>
+  <secret>%s</secret>
+</org.jenkinsci.plugins.plaincredentials.impl.StringCredentialsImpl>`, id, description, secret)
+
+	apiURL := fmt.Sprintf("%s/credentials/store/system/domain/_/createCredentials", jc.baseURL)
+	req, err := http.NewRequest("POST", apiURL, strings.NewReader(xmlContent))
+	if err != nil {
+		return fmt.Errorf("failed to create request: %v", err)
+	}
+	req.SetBasicAuth(jc.username, jc.password)
+	req.Header.Set("Content-Type", "application/xml")
+
+	resp, err := jc.client.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to create credential: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent && resp.StatusCode != http.StatusFound {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("create secret text credential failed with status %d: %s", resp.StatusCode, string(body))
+	}
+
+	log.S().Infof("Jenkins SecretText credential created/updated: %s", id)
+	return nil
+}
+
+// deleteCredential 删除 Jenkins 凭据（内部辅助方法）
+func (jc *JenkinsClient) deleteCredential(id string) error {
+	if id == "" {
+		return fmt.Errorf("credential id cannot be empty")
+	}
+
+	apiURL := fmt.Sprintf("%s/credentials/store/system/domain/_/credential/%s/doDelete", jc.baseURL, url.QueryEscape(id))
+	req, err := http.NewRequest("POST", apiURL, nil)
+	if err != nil {
+		return fmt.Errorf("failed to create request: %v", err)
+	}
+	req.SetBasicAuth(jc.username, jc.password)
+
+	resp, err := jc.client.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to delete credential: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusFound && resp.StatusCode != http.StatusNoContent {
+		// 404 不算失败——凭据可能已不存在
+		if resp.StatusCode == http.StatusNotFound {
+			return nil
+		}
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("delete credential failed with status %d: %s", resp.StatusCode, string(body))
+	}
+
+	log.S().Infof("Jenkins credential deleted: %s", id)
+	return nil
+}
