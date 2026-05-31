@@ -50,7 +50,6 @@ type Application struct {
 type ApplicationDeploymentRequest struct {
 	ApplicationID        uint   `gorm:"not null;comment:应用服务ID" json:"application_id"`
 	EnvironmentID        uint   `gorm:"not null;comment:环境ID" json:"environment_id"`
-	PlatformCredentialID *uint  `gorm:"comment:平台凭据ID" json:"platform_credential_id"`
 	BuildSource          string `gorm:"size:50;default:'tag';comment:构建源(tag/branch)" json:"build_source"`
 	Description          string `gorm:"type:text;comment:描述" json:"description"`
 	BuildTemplateID      *uint  `gorm:"comment:构建模板ID" json:"build_template_id"`
