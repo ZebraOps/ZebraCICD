@@ -130,7 +130,7 @@ func (s *DeployService) ProcessDeploymentTask(ctx context.Context, taskID uint) 
 	s.updateTaskStatus(taskID, "BUILDING", "开始Jenkins构建流程", "")
 
 	// 2. 触发Jenkins构建
-	buildResult, err := s.triggerJenkinsBuild(&task)
+	buildResult, jenkinsClient, err := s.triggerJenkinsBuild(&task)
 	if err != nil {
 		s.updateTaskStatus(taskID, "FAILED", fmt.Sprintf("Jenkins构建失败: %v", err), err.Error())
 		return err
@@ -139,8 +139,8 @@ func (s *DeployService) ProcessDeploymentTask(ctx context.Context, taskID uint) 
 	// 保存 Jenkins 构建编号
 	s.db.Model(&model.DeployTask{}).Where("id = ?", taskID).Update("jenkins_build_number", buildResult.BuildNumber)
 
-	// 3. 等待构建完成
-	if !s.waitForJenkinsBuild(ctx, buildResult.JobName, buildResult.BuildNumber) {
+	// 3. 等待构建完成（使用触发构建时的同一 Jenkins 客户端）
+	if !s.waitForJenkinsBuild(ctx, jenkinsClient, buildResult.JobName, buildResult.BuildNumber) {
 		errMsg := "Jenkins构建失败或超时"
 		s.updateTaskStatus(taskID, "FAILED", errMsg, errMsg)
 		return fmt.Errorf("jenkins build failed or timed out: job=%s build=%d", buildResult.JobName, buildResult.BuildNumber)
@@ -193,16 +193,17 @@ func (s *DeployService) ProcessDeploymentTask(ctx context.Context, taskID uint) 
 }
 
 // triggerJenkinsBuild 触发Jenkins构建（支持平台配置注入）
-func (s *DeployService) triggerJenkinsBuild(task *model.DeployTask) (*core.JenkinsBuildResult, error) {
+// 返回构建结果和使用的 Jenkins 客户端（供 waitForJenkinsBuild 使用）
+func (s *DeployService) triggerJenkinsBuild(task *model.DeployTask) (*core.JenkinsBuildResult, *core.JenkinsClient, error) {
 	// 1. 根据应用ID获取关联仓库
 	var app model.Application
 	if err := s.db.First(&app, task.ProjectID).Error; err != nil {
-		return nil, fmt.Errorf("failed to get application %d: %v", task.ProjectID, err)
+		return nil, nil, fmt.Errorf("failed to get application %d: %v", task.ProjectID, err)
 	}
 
 	var repo model.Repo
 	if err := s.db.First(&repo, app.RepoID).Error; err != nil {
-		return nil, fmt.Errorf("failed to get repo %d: %v", app.RepoID, err)
+		return nil, nil, fmt.Errorf("failed to get repo %d: %v", app.RepoID, err)
 	}
 
 	// 2. 获取构建模板：必须使用任务指定的模板ID
@@ -210,13 +211,13 @@ func (s *DeployService) triggerJenkinsBuild(task *model.DeployTask) (*core.Jenki
 	if task.BuildTemplateID != nil && *task.BuildTemplateID > 0 {
 		var bt model.BuildTemplate
 		if err := s.db.First(&bt, *task.BuildTemplateID).Error; err != nil {
-			return nil, fmt.Errorf("failed to get build template %d: %v", *task.BuildTemplateID, err)
+			return nil, nil, fmt.Errorf("failed to get build template %d: %v", *task.BuildTemplateID, err)
 		}
 		buildTemplate = &bt
 	}
 
 	if buildTemplate == nil {
-		return nil, fmt.Errorf("no build template specified for task %d", task.ID)
+		return nil, nil, fmt.Errorf("no build template specified for task %d", task.ID)
 	}
 
 	// 3. 查找 ApplicationDeployment 以获取平台关联配置
@@ -340,20 +341,20 @@ func (s *DeployService) triggerJenkinsBuild(task *model.DeployTask) (*core.Jenki
 	// 5. 检查 Jenkins Job 是否存在，不存在则创建
 	jobExists, err := jenkinsClient.CheckJobExists(task.JenkinsJobName)
 	if err != nil {
-		return nil, fmt.Errorf("failed to check job existence: %v", err)
+		return nil, nil, fmt.Errorf("failed to check job existence: %v", err)
 	}
 
 	if !jobExists {
 		fmt.Fprintf(os.Stdout, "Jenkins Job %s does not exist, creating...\n", task.JenkinsJobName)
 		jobConfig := s.generateJobConfig(buildTemplate, task.GitRef, repo.RepoURL, task.ImageTag)
 		if err := jenkinsClient.CreateJob(task.JenkinsJobName, jobConfig); err != nil {
-			return nil, fmt.Errorf("failed to create job: %v", err)
+			return nil, nil, fmt.Errorf("failed to create job: %v", err)
 		}
 	}
 
 	// 6. 鉴权
 	if err := jenkinsClient.Authenticate(); err != nil {
-		return nil, fmt.Errorf("Jenkins authentication failed: %v", err)
+		return nil, nil, fmt.Errorf("Jenkins authentication failed: %v", err)
 	}
 	fmt.Println("开始触发Jenkins构建")
 
@@ -370,11 +371,15 @@ func (s *DeployService) triggerJenkinsBuild(task *model.DeployTask) (*core.Jenki
 		"DEPLOY_TARGET":   task.DeployTarget,
 	}
 
-	return jenkinsClient.BuildJob(task.JenkinsJobName, params)
+	result, err := jenkinsClient.BuildJob(task.JenkinsJobName, params)
+	if err != nil {
+		return nil, nil, err
+	}
+	return result, jenkinsClient, nil
 }
 
-// waitForJenkinsBuild 等待Jenkins构建完成
-func (s *DeployService) waitForJenkinsBuild(ctx context.Context, jobName string, buildNumber int) bool {
+// waitForJenkinsBuild 等待Jenkins构建完成（使用触发构建时的同一 Jenkins 客户端）
+func (s *DeployService) waitForJenkinsBuild(ctx context.Context, jenkinsClient *core.JenkinsClient, jobName string, buildNumber int) bool {
 	timeout := time.After(10 * time.Minute)
 	ticker := time.NewTicker(10 * time.Second)
 	defer ticker.Stop()
@@ -386,7 +391,7 @@ func (s *DeployService) waitForJenkinsBuild(ctx context.Context, jobName string,
 		case <-timeout:
 			return false
 		case <-ticker.C:
-			status, err := s.jenkins.GetBuildStatus(jobName, buildNumber)
+			status, err := jenkinsClient.GetBuildStatus(jobName, buildNumber)
 			if err != nil {
 				log.S().Infof("Error getting build status: %v", err)
 				continue
