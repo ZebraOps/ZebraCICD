@@ -300,9 +300,10 @@ func RegisterServerRoutes(r *gin.Engine, svc *service.ServerService) {
 			ConnectServerHandler(c, svc)
 		})
 
-		// 获取容器列表
+		// 旧路由重定向到新路径（兼容期，1周后移除）
 		g.GET("/:id/containers", func(c *gin.Context) {
-			ListContainersHandler(c, svc)
+			id := c.Param("id")
+			c.Redirect(http.StatusMovedPermanently, "/api/servers/"+id+"/containers")
 		})
 	}
 }

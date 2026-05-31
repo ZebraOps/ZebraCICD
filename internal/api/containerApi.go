@@ -96,6 +96,11 @@ func AttachContainerHandler(c *gin.Context, svc *service.ServerService) {
 func RegisterContainerRoutes(r *gin.Engine, svc *service.ServerService) {
 	g := r.Group("/api/servers/:id/containers")
 	{
+		// 获取容器列表
+		g.GET("", func(c *gin.Context) {
+			ListContainersHandler(c, svc)
+		})
+
 		// 在容器中执行命令
 		g.POST("/:containerID/exec", func(c *gin.Context) {
 			ExecContainerHandler(c, svc)

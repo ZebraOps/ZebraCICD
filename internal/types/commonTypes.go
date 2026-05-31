@@ -50,6 +50,7 @@ func Error(c *gin.Context, code int, message string) {
 }
 
 // ErrorWithHttpStatus 带HTTP状态码的错误响应
+// DEPRECATED: 使用 Error() 替代，保持与前端拦截器的统一（HTTP 200 + JSON body code）
 func ErrorWithHttpStatus(c *gin.Context, httpCode int, code int, message string) {
 	c.JSON(httpCode, Response{
 		Code:    code,

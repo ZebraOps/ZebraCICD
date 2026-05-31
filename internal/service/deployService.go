@@ -9,10 +9,13 @@ import (
 
 	"github.com/ZebraOps/ZebraCICD/config"
 	"github.com/ZebraOps/ZebraCICD/internal/core"
+	"github.com/ZebraOps/ZebraCICD/internal/handler"
 	"github.com/ZebraOps/ZebraCICD/internal/model"
 	"github.com/ZebraOps/ZebraCICD/pkg/log"
 	"github.com/ZebraOps/ZebraCICD/pkg/queue"
+	sshclient "github.com/ZebraOps/ZebraCICD/pkg/ssh"
 	"github.com/samber/lo"
+	"golang.org/x/crypto/ssh"
 	"gopkg.in/yaml.v2"
 	"gorm.io/gorm"
 	appsv1 "k8s.io/api/apps/v1"
@@ -35,6 +38,7 @@ type DeployService struct {
 	jenkins     *core.JenkinsClient
 	k8s         *core.K8sClient
 	queueClient *queue.Client
+	serverRepo  *handler.ServerRepository
 }
 
 type JenkinsBuildResult struct {
@@ -67,7 +71,7 @@ func (s *DeployService) getK8sClient(clusterID uint) (*kubernetes.Clientset, err
 	)
 }
 
-func NewDeployService(db *gorm.DB, cfg *config.Config, queueClient *queue.Client) *DeployService {
+func NewDeployService(db *gorm.DB, cfg *config.Config, queueClient *queue.Client, serverRepo *handler.ServerRepository) *DeployService {
 	gc := core.NewGitLabClient(cfg.GitLabURL, cfg.GitLabToken)
 	hc := core.NewHarborClient(cfg.HarborURL)
 	jc := core.NewJenkinsClient(cfg.JenkinsURL, cfg.JenkinsUser, cfg.JenkinsPass)
@@ -79,6 +83,7 @@ func NewDeployService(db *gorm.DB, cfg *config.Config, queueClient *queue.Client
 		harbor:      hc,
 		jenkins:     jc,
 		queueClient: queueClient,
+		serverRepo:  serverRepo,
 	}
 }
 
@@ -136,13 +141,24 @@ func (s *DeployService) ProcessDeploymentTask(ctx context.Context, taskID uint) 
 		return fmt.Errorf("harbor image not found: %s/%s:%s", task.HarborProject, task.ImageName, task.ImageTag)
 	}
 
-	// 6. 开始部署阶段
-	s.updateTaskStatus(taskID, "DEPLOYING", "开始部署到K8s集群", "")
-
-	// 7. 部署到K8s
-	if err := s.deployToK8s(&task); err != nil {
-		s.updateTaskStatus(taskID, "FAILED", fmt.Sprintf("K8s部署失败: %v", err), err.Error())
-		return err
+	// 6. 开始部署阶段 — 根据部署类型分支
+	switch task.DeployType {
+	case "docker":
+		s.updateTaskStatus(taskID, "DEPLOYING", "开始部署到Linux主机(Docker)", "")
+		if err := s.deployToDocker(&task); err != nil {
+			s.updateTaskStatus(taskID, "FAILED", fmt.Sprintf("Docker部署失败: %v", err), err.Error())
+			return err
+		}
+	case "k8s":
+		s.updateTaskStatus(taskID, "DEPLOYING", "开始部署到K8s集群", "")
+		if err := s.deployToK8s(&task); err != nil {
+			s.updateTaskStatus(taskID, "FAILED", fmt.Sprintf("K8s部署失败: %v", err), err.Error())
+			return err
+		}
+	default:
+		errMsg := fmt.Sprintf("未知的部署类型: %s", task.DeployType)
+		s.updateTaskStatus(taskID, "FAILED", errMsg, errMsg)
+		return fmt.Errorf("unknown deploy type: %s", task.DeployType)
 	}
 
 	// 8. 部署成功
@@ -248,7 +264,108 @@ func (s *DeployService) verifyImageInHarbor(project, imageName, tag string) bool
 	return false
 }
 
-// deployToK8s 部署到K8s集群
+// deployToDocker 通过SSH部署docker-compose到Linux主机
+func (s *DeployService) deployToDocker(task *model.DeployTask) error {
+	// 1. 获取目标服务器信息
+	server, err := s.serverRepo.GetByID(task.ServerID)
+	if err != nil {
+		return fmt.Errorf("获取服务器 %d 失败: %v", task.ServerID, err)
+	}
+
+	// 2. 获取部署模板（必须指定模板ID且类型为docker）
+	if task.DeploymentTemplateID == nil || *task.DeploymentTemplateID == 0 {
+		return fmt.Errorf("Docker部署任务 %d 未指定部署模板", task.ID)
+	}
+	var deploymentTemplate model.DeploymentTemplate
+	if err := s.db.First(&deploymentTemplate, *task.DeploymentTemplateID).Error; err != nil {
+		return fmt.Errorf("获取部署模板 %d 失败: %v", *task.DeploymentTemplateID, err)
+	}
+	if deploymentTemplate.TemplateType != "docker" {
+		return fmt.Errorf("模板 %d 类型为 '%s'，期望 'docker'", deploymentTemplate.ID, deploymentTemplate.TemplateType)
+	}
+
+	// 3. 渲染模板内容
+	renderedYAML := s.renderDockerTemplate(deploymentTemplate.Content, task)
+
+	// 4. 创建SSH客户端
+	sshClient, err := s.createSSHClientFromServer(server)
+	if err != nil {
+		return fmt.Errorf("SSH连接 %s 失败: %v", server.Host, err)
+	}
+	defer sshClient.Close()
+
+	// 5. 创建远端部署目录
+	composeDir := fmt.Sprintf("/opt/zebra-deploy/%s", task.DeploymentName)
+	_, _, exitCode, _ := sshClient.RunCommandOutput(fmt.Sprintf("mkdir -p %s", composeDir))
+	if exitCode != 0 {
+		return fmt.Errorf("创建部署目录 %s 失败 (exit=%d)", composeDir, exitCode)
+	}
+
+	// 6. 上传渲染后的docker-compose.yml
+	composePath := fmt.Sprintf("%s/docker-compose.yml", composeDir)
+	if err := sshClient.UploadFile(composePath, []byte(renderedYAML)); err != nil {
+		return fmt.Errorf("上传 docker-compose.yml 失败: %v", err)
+	}
+	log.S().Infof("uploaded docker-compose.yml to %s:%s", server.Host, composePath)
+
+	// 7. 拉取镜像
+	_, stderr, exitCode, _ := sshClient.RunCommandOutput(fmt.Sprintf("cd %s && docker-compose pull 2>&1", composeDir))
+	if exitCode != 0 {
+		return fmt.Errorf("docker-compose pull 失败 (exit=%d): %s", exitCode, stderr)
+	}
+	log.S().Infof("docker-compose pull succeeded on %s", server.Host)
+
+	// 8. 启动服务
+	_, stderr, exitCode, _ = sshClient.RunCommandOutput(fmt.Sprintf("cd %s && docker-compose up -d 2>&1", composeDir))
+	if exitCode != 0 {
+		return fmt.Errorf("docker-compose up -d 失败 (exit=%d): %s", exitCode, stderr)
+	}
+	log.S().Infof("docker-compose up -d succeeded on %s", server.Host)
+
+	// 9. 保存compose路径到任务记录
+	s.db.Model(&model.DeployTask{}).Where("id = ?", task.ID).Update("docker_compose_path", composePath)
+
+	return nil
+}
+
+// renderDockerTemplate 渲染Docker部署模板（docker-compose YAML）
+func (s *DeployService) renderDockerTemplate(templateContent string, task *model.DeployTask) string {
+	var projectName string
+	var app model.Application
+	if err := s.db.First(&app, task.ProjectID).Error; err == nil {
+		projectName = app.EName
+	} else {
+		projectName = fmt.Sprintf("project-%d", task.ProjectID)
+	}
+
+	rendered := templateContent
+	rendered = strings.ReplaceAll(rendered, "\\n", "\n")
+	rendered = strings.ReplaceAll(rendered, "\r\n", "\n")
+	rendered = strings.ReplaceAll(rendered, "\r", "\n")
+	rendered = strings.ReplaceAll(rendered, "{{IMAGE_TAG}}", task.ImageTag)
+	rendered = strings.ReplaceAll(rendered, "{{PROJECT_NAME}}", projectName)
+	rendered = strings.ReplaceAll(rendered, "{{ENV_NAME}}", fmt.Sprintf("env-%d", task.EnvID))
+	rendered = strings.ReplaceAll(rendered, "{{DEPLOYMENT_NAME}}", task.DeploymentName)
+
+	return rendered
+}
+
+// createSSHClientFromServer 从Server模型创建SSHClient（支持密码和密钥认证）
+func (s *DeployService) createSSHClientFromServer(server *model.Server) (*sshclient.SSHClient, error) {
+	var authMethods []ssh.AuthMethod
+
+	if server.AuthType == "key" {
+		signer, err := ssh.ParsePrivateKey([]byte(server.PrivateKey))
+		if err != nil {
+			return nil, fmt.Errorf("解析私钥失败: %v", err)
+		}
+		authMethods = append(authMethods, ssh.PublicKeys(signer))
+	} else {
+		authMethods = append(authMethods, ssh.Password(server.Password))
+	}
+
+	return sshclient.NewSSHClientWithAuth(server.Host, server.Port, server.Username, authMethods)
+}
 func (s *DeployService) deployToK8s(task *model.DeployTask) error {
 	// 2. 根据环境配置获取集群信息
 	var cluster model.K8SCluster

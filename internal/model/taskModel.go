@@ -27,6 +27,11 @@ type DeployTask struct {
 	BuildTemplateID      *uint `gorm:"comment:构建模板ID" json:"build_template_id,omitempty"`
 	DeploymentTemplateID *uint `gorm:"comment:部署模板ID" json:"deployment_template_id,omitempty"`
 
+	// 部署类型与目标
+	DeployType        string `gorm:"size:50;default:'k8s';comment:部署类型(k8s/docker)" json:"deploy_type"`
+	ServerID          uint   `gorm:"comment:目标Linux服务器ID(Docker部署)" json:"server_id"`
+	DockerComposePath string `gorm:"size:500;comment:docker-compose文件路径" json:"docker_compose_path,omitempty"`
+
 	// Jenkins 构建信息
 	JenkinsBuildNumber int    `gorm:"comment:Jenkins构建编号" json:"jenkins_build_number,omitempty"`
 	ErrorMessage       string `gorm:"type:text;comment:错误信息" json:"error_message,omitempty"`

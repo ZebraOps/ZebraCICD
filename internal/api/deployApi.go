@@ -28,28 +28,48 @@ import (
 func createDeployTaskHandler(c *gin.Context, svc *service.DeployService) {
 	var req model.DeployTask
 	if err := c.ShouldBindJSON(&req); err != nil {
-		types.ErrorWithHttpStatus(c, http.StatusBadRequest, 400, err.Error())
+		types.Error(c, http.StatusBadRequest, err.Error())
 		return
 	}
 
 	// 验证必需字段
 	if req.ProjectID == 0 || req.EnvID == 0 {
-		types.ErrorWithHttpStatus(c, http.StatusBadRequest, 400, "ProjectID and EnvID are required")
+		types.Error(c, http.StatusBadRequest, "ProjectID and EnvID are required")
 		return
 	}
 
-	if req.K8sClusterID == 0 {
-		types.ErrorWithHttpStatus(c, http.StatusBadRequest, 400, "K8sClusterID is required")
+	// 设置默认部署类型
+	if req.DeployType == "" {
+		req.DeployType = "k8s"
+	}
+
+	// 根据部署类型验证
+	switch req.DeployType {
+	case "k8s":
+		if req.K8sClusterID == 0 {
+			types.Error(c, http.StatusBadRequest, "K8sClusterID is required for k8s deployment")
+			return
+		}
+		if req.K8sNamespace == "" {
+			req.K8sNamespace = "default"
+		}
+	case "docker":
+		if req.ServerID == 0 {
+			types.Error(c, http.StatusBadRequest, "ServerID is required for docker deployment")
+			return
+		}
+	default:
+		types.Error(c, http.StatusBadRequest, "DeployType must be 'k8s' or 'docker'")
 		return
 	}
 
 	if req.JenkinsJobName == "" {
-		types.ErrorWithHttpStatus(c, http.StatusBadRequest, 400, "JenkinsJobName is required")
+		types.Error(c, http.StatusBadRequest, "JenkinsJobName is required")
 		return
 	}
 
 	if req.HarborProject == "" || req.ImageName == "" {
-		types.ErrorWithHttpStatus(c, http.StatusBadRequest, 400, "HarborProject and ImageName are required")
+		types.Error(c, http.StatusBadRequest, "HarborProject and ImageName are required")
 		return
 	}
 
@@ -57,16 +77,12 @@ func createDeployTaskHandler(c *gin.Context, svc *service.DeployService) {
 		req.DeploymentName = fmt.Sprintf("app-%d", req.ProjectID)
 	}
 
-	if req.K8sNamespace == "" {
-		req.K8sNamespace = "default"
-	}
-
 	if req.GitRef == "" {
 		req.GitRef = "main" // 默认分支
 	}
 
 	if err := svc.CreateTask(&req); err != nil {
-		types.ErrorWithHttpStatus(c, http.StatusInternalServerError, 500, err.Error())
+		types.Error(c, http.StatusInternalServerError, err.Error())
 		return
 	}
 
@@ -87,13 +103,13 @@ func getDeployTaskHandler(c *gin.Context, svc *service.DeployService) {
 	idStr := c.Param("id")
 	id, err := strconv.Atoi(idStr)
 	if err != nil {
-		types.ErrorWithHttpStatus(c, http.StatusBadRequest, 400, "invalid id format")
+		types.Error(c, http.StatusBadRequest, "invalid id format")
 		return
 	}
 
 	t, err := svc.GetTask(uint(id))
 	if err != nil {
-		types.ErrorWithHttpStatus(c, http.StatusNotFound, 404, "task not found")
+		types.Error(c, http.StatusNotFound, "task not found")
 		return
 	}
 	types.Success(c, t)
@@ -137,7 +153,7 @@ func listDeployTasksHandler(c *gin.Context, svc *service.DeployService) {
 
 	tasks, total, err := svc.ListTasks(status, projectID, page, size)
 	if err != nil {
-		types.ErrorWithHttpStatus(c, http.StatusInternalServerError, 500, err.Error())
+		types.Error(c, http.StatusInternalServerError, err.Error())
 		return
 	}
 
@@ -158,12 +174,12 @@ func deleteDeployTaskHandler(c *gin.Context, svc *service.DeployService) {
 	idStr := c.Param("id")
 	id, err := strconv.Atoi(idStr)
 	if err != nil {
-		types.ErrorWithHttpStatus(c, http.StatusBadRequest, 400, "invalid id format")
+		types.Error(c, http.StatusBadRequest, "invalid id format")
 		return
 	}
 
 	if err := svc.DeleteTask(uint(id)); err != nil {
-		types.ErrorWithHttpStatus(c, http.StatusInternalServerError, 500, err.Error())
+		types.Error(c, http.StatusInternalServerError, err.Error())
 		return
 	}
 
@@ -189,12 +205,12 @@ type batchDeleteRequest struct {
 func batchDeleteDeployTasksHandler(c *gin.Context, svc *service.DeployService) {
 	var req batchDeleteRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		types.ErrorWithHttpStatus(c, http.StatusBadRequest, 400, err.Error())
+		types.Error(c, http.StatusBadRequest, err.Error())
 		return
 	}
 
 	if err := svc.BatchDeleteTasks(req.IDs); err != nil {
-		types.ErrorWithHttpStatus(c, http.StatusInternalServerError, 500, err.Error())
+		types.Error(c, http.StatusInternalServerError, err.Error())
 		return
 	}
 
@@ -214,18 +230,18 @@ func batchDeleteDeployTasksHandler(c *gin.Context, svc *service.DeployService) {
 func getAvailableTemplatesHandler(c *gin.Context, svc *service.DeployService) {
 	appIDStr := c.Query("app_id")
 	if appIDStr == "" {
-		types.ErrorWithHttpStatus(c, http.StatusBadRequest, 400, "app_id is required")
+		types.Error(c, http.StatusBadRequest, "app_id is required")
 		return
 	}
 	appID, err := strconv.Atoi(appIDStr)
 	if err != nil {
-		types.ErrorWithHttpStatus(c, http.StatusBadRequest, 400, "invalid app_id format")
+		types.Error(c, http.StatusBadRequest, "invalid app_id format")
 		return
 	}
 
 	templates, err := svc.GetAvailableTemplatesForTask(uint(appID), 0)
 	if err != nil {
-		types.ErrorWithHttpStatus(c, http.StatusInternalServerError, 500, err.Error())
+		types.Error(c, http.StatusInternalServerError, err.Error())
 		return
 	}
 
@@ -246,13 +262,13 @@ func getDeployTaskConsoleHandler(c *gin.Context, svc *service.DeployService) {
 	idStr := c.Param("id")
 	id, err := strconv.Atoi(idStr)
 	if err != nil {
-		types.ErrorWithHttpStatus(c, http.StatusBadRequest, 400, "invalid id format")
+		types.Error(c, http.StatusBadRequest, "invalid id format")
 		return
 	}
 
 	output, err := svc.GetTaskConsole(uint(id))
 	if err != nil {
-		types.ErrorWithHttpStatus(c, http.StatusInternalServerError, 500, err.Error())
+		types.Error(c, http.StatusInternalServerError, err.Error())
 		return
 	}
 
@@ -269,7 +285,7 @@ func streamDeployTaskConsoleHandler(c *gin.Context, svc *service.DeployService) 
 	idStr := c.Param("id")
 	id, err := strconv.Atoi(idStr)
 	if err != nil {
-		types.ErrorWithHttpStatus(c, http.StatusBadRequest, 400, "invalid id format")
+		types.Error(c, http.StatusBadRequest, "invalid id format")
 		return
 	}
 

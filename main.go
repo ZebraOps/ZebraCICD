@@ -157,7 +157,8 @@ func main() {
 
 	// Repositories and services
 	gitlabClient := core.NewGitLabClient(cfg.GitLabURL, cfg.GitLabToken)
-	deploySvc := service.NewDeployService(db, cfg, queueClient)
+	serverRepo := handler.NewServerRepository(db)
+	deploySvc := service.NewDeployService(db, cfg, queueClient, serverRepo)
 	repoRepo := handler.NewRepoRepository(db)
 	repoSvc := service.NewRepoService(repoRepo, gitlabClient, cfg.GitLabURL)
 
@@ -170,8 +171,7 @@ func main() {
 	k8sClusterRepo := handler.NewK8SClusterRepository(db)
 	k8sSvc := service.NewK8SService(k8sClusterRepo)
 
-	// 服务器相关的 Repository 和 Service
-	serverRepo := handler.NewServerRepository(db)
+	// 服务器相关的 Service
 	serverSvc := service.NewServerService(serverRepo)
 
 	// 镜像仓库
