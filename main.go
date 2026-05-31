@@ -151,6 +151,18 @@ func main() {
 		log.S().Fatalf("auto migrate failed: %v", err)
 	}
 
+		// 数据回填：为旧记录填充 deploy_target
+		if err := db.Model(&model.ApplicationDeployment{}).
+			Where("deploy_target = '' OR deploy_target IS NULL").
+			Update("deploy_target", "k8s").Error; err != nil {
+			log.S().Warnf("backfill application_deployments.deploy_target: %v", err)
+		}
+		if err := db.Model(&model.DeployTask{}).
+			Where("deploy_target = '' OR deploy_target IS NULL").
+			Update("deploy_target", gorm.Expr("deploy_type")).Error; err != nil {
+			log.S().Warnf("backfill deploy_tasks.deploy_target: %v", err)
+		}
+
 	// 初始化 Asynq 队列客户端
 	queueClient := queue.NewClient(cfg.RedisAddr, cfg.RedisPassword, cfg.RedisDB)
 	defer queueClient.Close()

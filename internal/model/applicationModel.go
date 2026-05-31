@@ -50,10 +50,15 @@ type Application struct {
 type ApplicationDeploymentRequest struct {
 	ApplicationID        uint   `gorm:"not null;comment:应用服务ID" json:"application_id"`
 	EnvironmentID        uint   `gorm:"not null;comment:环境ID" json:"environment_id"`
+	DeployTarget         string `gorm:"size:50;not null;default:'k8s';comment:部署目标(k8s/docker/linux)" json:"deploy_target"`
 	BuildSource          string `gorm:"size:50;default:'tag';comment:构建源(tag/branch)" json:"build_source"`
 	Description          string `gorm:"type:text;comment:描述" json:"description"`
 	BuildTemplateID      *uint  `gorm:"comment:构建模板ID" json:"build_template_id"`
 	DeploymentTemplateID *uint  `gorm:"comment:部署模板ID" json:"deployment_template_id"`
+	K8sClusterID         *uint  `gorm:"comment:K8s集群ID" json:"k8s_cluster_id"`
+	K8sNamespace         string `gorm:"size:100;default:'default';comment:K8s命名空间" json:"k8s_namespace"`
+	ServerID             *uint  `gorm:"comment:目标服务器ID(docker/linux)" json:"server_id"`
+	DeployPath           string `gorm:"size:500;comment:部署路径(linux/Nginx代理目录)" json:"deploy_path"`
 }
 
 type ApplicationDeploymentResponse struct {
@@ -80,4 +85,6 @@ type ApplicationDeployment struct {
 	Environment        *Environment        `gorm:"foreignKey:EnvironmentID" json:"environment,omitempty"`
 	BuildTemplate      *BuildTemplate      `gorm:"foreignKey:BuildTemplateID" json:"build_template,omitempty"`
 	DeploymentTemplate *DeploymentTemplate `gorm:"foreignKey:DeploymentTemplateID" json:"deployment_template,omitempty"`
+	K8sCluster         *K8SCluster         `gorm:"foreignKey:K8sClusterID" json:"k8s_cluster,omitempty"`
+	Server             *Server             `gorm:"foreignKey:ServerID" json:"server,omitempty"`
 }

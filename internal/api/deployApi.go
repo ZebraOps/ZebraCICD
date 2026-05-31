@@ -38,13 +38,18 @@ func createDeployTaskHandler(c *gin.Context, svc *service.DeployService) {
 		return
 	}
 
-	// 设置默认部署类型
-	if req.DeployType == "" {
-		req.DeployType = "k8s"
+	// 设置默认部署目标
+	if req.DeployTarget == "" && req.DeployType != "" {
+		req.DeployTarget = req.DeployType // 兼容旧数据
 	}
+	if req.DeployTarget == "" {
+		req.DeployTarget = "k8s"
+	}
+	// 同步 DeployType 用于兼容
+	req.DeployType = req.DeployTarget
 
-	// 根据部署类型验证
-	switch req.DeployType {
+	// 根据部署目标验证
+	switch req.DeployTarget {
 	case "k8s":
 		if req.K8sClusterID == 0 {
 			types.Error(c, http.StatusBadRequest, "K8sClusterID is required for k8s deployment")
@@ -58,8 +63,17 @@ func createDeployTaskHandler(c *gin.Context, svc *service.DeployService) {
 			types.Error(c, http.StatusBadRequest, "ServerID is required for docker deployment")
 			return
 		}
+	case "linux":
+		if req.ServerID == 0 {
+			types.Error(c, http.StatusBadRequest, "ServerID is required for linux deployment")
+			return
+		}
+		if req.DeployPath == "" {
+			types.Error(c, http.StatusBadRequest, "DeployPath is required for linux deployment")
+			return
+		}
 	default:
-		types.Error(c, http.StatusBadRequest, "DeployType must be 'k8s' or 'docker'")
+		types.Error(c, http.StatusBadRequest, "DeployTarget must be 'k8s', 'docker', or 'linux'")
 		return
 	}
 

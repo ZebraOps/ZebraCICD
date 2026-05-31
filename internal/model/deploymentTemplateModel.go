@@ -25,7 +25,7 @@ type DeploymentTemplate struct {
 	Name         string            `gorm:"size:255;uniqueIndex;not null;comment:部署模板名称" json:"name"`
 	DisplayName  string            `gorm:"size:255;comment:显示名称" json:"display_name"`
 	Description  string            `gorm:"type:text;comment:部署模板描述" json:"description"`
-	TemplateType string            `gorm:"size:50;comment:模板类型(k8s/helm/docker)" json:"template_type"`
+	TemplateType string            `gorm:"size:50;comment:模板类型(k8s/helm/docker/linux)" json:"template_type"`
 	Content      string            `gorm:"type:text;comment:模板内容(YAML/JSON格式)" json:"content"`
 	Variables    string            `gorm:"type:text;comment:模板变量(JSON格式)" json:"variables"`
 	Parameters   string            `gorm:"type:text;comment:模板参数(JSON格式)" json:"parameters"`

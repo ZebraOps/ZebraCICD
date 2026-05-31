@@ -29,8 +29,10 @@ type DeployTask struct {
 
 	// 部署类型与目标
 	DeployType        string `gorm:"size:50;default:'k8s';comment:部署类型(k8s/docker)" json:"deploy_type"`
-	ServerID          uint   `gorm:"comment:目标Linux服务器ID(Docker部署)" json:"server_id"`
+	DeployTarget      string `gorm:"size:50;default:'k8s';comment:部署目标(k8s/docker/linux)" json:"deploy_target"`
+	ServerID          uint   `gorm:"comment:目标Linux服务器ID(Docker/Linux部署)" json:"server_id"`
 	DockerComposePath string `gorm:"size:500;comment:docker-compose文件路径" json:"docker_compose_path,omitempty"`
+	DeployPath        string `gorm:"size:500;comment:部署路径(linux/Nginx代理目录)" json:"deploy_path,omitempty"`
 
 	// Jenkins 构建信息
 	JenkinsBuildNumber int    `gorm:"comment:Jenkins构建编号" json:"jenkins_build_number,omitempty"`

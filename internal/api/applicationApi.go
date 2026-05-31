@@ -361,6 +361,41 @@ func ListDeploymentsByEnvironmentHandler(c *gin.Context, svc *service.Applicatio
 	types.Success(c, deployments)
 }
 
+// LookupDeploymentsByAppAndEnvHandler 根据应用+环境查找部署配置（用于任务创建自动填充）
+// @Summary 根据应用+环境查找部署配置
+// @Description 返回指定(app, env)的所有部署配置，前端任务创建表单用此接口自动填充
+// @Tags application-deployments
+// @Produce json
+// @Param application_id query int true "应用ID"
+// @Param environment_id query int true "环境ID"
+// @Success 200 {array} model.ApplicationDeployment
+// @Failure 400 {object} map[string]string
+// @Failure 500 {object} map[string]string
+// @Router /api/application/template/lookup [get]
+func LookupDeploymentsByAppAndEnvHandler(c *gin.Context, svc *service.ApplicationService) {
+	appIDStr := c.Query("application_id")
+	envIDStr := c.Query("environment_id")
+	if appIDStr == "" || envIDStr == "" {
+		types.Error(c, http.StatusBadRequest, "application_id and environment_id are required")
+		return
+	}
+
+	appID, err1 := strconv.Atoi(appIDStr)
+	envID, err2 := strconv.Atoi(envIDStr)
+	if err1 != nil || err2 != nil {
+		types.Error(c, http.StatusBadRequest, "invalid id format")
+		return
+	}
+
+	deployments, err := svc.ListDeploymentsByAppAndEnv(uint(appID), uint(envID))
+	if err != nil {
+		types.Error(c, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	types.Success(c, deployments)
+}
+
 // RegisterApplicationRoutes 注册应用服务相关路由
 func RegisterApplicationRoutes(r *gin.Engine, svc *service.ApplicationService) {
 	appGroup := r.Group("/api/applications")
@@ -394,6 +429,9 @@ func RegisterApplicationRoutes(r *gin.Engine, svc *service.ApplicationService) {
 		})
 		deployGroup.GET("/environment", func(c *gin.Context) {
 			ListDeploymentsByEnvironmentHandler(c, svc)
+		})
+		deployGroup.GET("/lookup", func(c *gin.Context) {
+			LookupDeploymentsByAppAndEnvHandler(c, svc)
 		})
 		deployGroup.GET("/:id", func(c *gin.Context) {
 			GetApplicationDeploymentByIDHandler(c, svc)

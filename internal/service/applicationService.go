@@ -117,6 +117,42 @@ func (s *ApplicationService) DeleteApplication(id uint) error {
 	return s.appRepo.Delete(id)
 }
 
+// validateDeployTarget 校验部署目标及其条件性字段
+func (s *ApplicationService) validateDeployTarget(req *model.ApplicationDeploymentRequest) error {
+	switch req.DeployTarget {
+	case "k8s":
+		if req.K8sClusterID == nil || *req.K8sClusterID == 0 {
+			return fmt.Errorf("K8s部署目标必须指定集群ID")
+		}
+		var cluster model.K8SCluster
+		if err := s.db.First(&cluster, *req.K8sClusterID).Error; err != nil {
+			return fmt.Errorf("K8s集群不存在: %v", err)
+		}
+	case "docker":
+		if req.ServerID == nil || *req.ServerID == 0 {
+			return fmt.Errorf("Docker部署目标必须指定服务器ID")
+		}
+		var server model.Server
+		if err := s.db.First(&server, *req.ServerID).Error; err != nil {
+			return fmt.Errorf("目标服务器不存在: %v", err)
+		}
+	case "linux":
+		if req.ServerID == nil || *req.ServerID == 0 {
+			return fmt.Errorf("Linux部署目标必须指定服务器ID")
+		}
+		var server model.Server
+		if err := s.db.First(&server, *req.ServerID).Error; err != nil {
+			return fmt.Errorf("目标服务器不存在: %v", err)
+		}
+		if req.DeployPath == "" {
+			return fmt.Errorf("Linux部署目标必须指定部署路径(Nginx代理目录)")
+		}
+	default:
+		return fmt.Errorf("部署目标必须是 k8s、docker 或 linux")
+	}
+	return nil
+}
+
 // CreateApplicationDeployment 创建应用部署配置
 func (s *ApplicationService) CreateApplicationDeployment(req *model.ApplicationDeploymentRequest) (*model.ApplicationDeployment, error) {
 	// 验证应用服务是否存在
@@ -129,6 +165,11 @@ func (s *ApplicationService) CreateApplicationDeployment(req *model.ApplicationD
 	var env model.Environment
 	if err := s.db.First(&env, req.EnvironmentID).Error; err != nil {
 		return nil, fmt.Errorf("环境不存在: %v", err)
+	}
+
+	// 校验部署目标及其条件性字段
+	if err := s.validateDeployTarget(req); err != nil {
+		return nil, err
 	}
 
 	// 验证构建模板（如果提供）
@@ -147,13 +188,13 @@ func (s *ApplicationService) CreateApplicationDeployment(req *model.ApplicationD
 		}
 	}
 
-	// 检查环境和集群组合的唯一性
-	isUnique, err := s.deployRepo.CheckUniqueDeployment(req.ApplicationID, req.EnvironmentID, nil)
+	// 检查(应用,环境,部署目标)组合的唯一性
+	isUnique, err := s.deployRepo.CheckUniqueDeployment(req.ApplicationID, req.EnvironmentID, req.DeployTarget, nil)
 	if err != nil {
 		return nil, fmt.Errorf("检查唯一性失败: %v", err)
 	}
 	if !isUnique {
-		return nil, fmt.Errorf("该环境和集群的组合已存在")
+		return nil, fmt.Errorf("该应用在相同环境和部署目标下已存在配置")
 	}
 
 	deployment := &model.ApplicationDeployment{
@@ -172,13 +213,15 @@ func (s *ApplicationService) CreateApplicationDeployment(req *model.ApplicationD
 
 	response := &model.ApplicationDeployment{
 		ID:                           fullDeployment.ID,
-		ApplicationDeploymentRequest: *req,
+		ApplicationDeploymentRequest: fullDeployment.ApplicationDeploymentRequest,
 		CreatedAt:                    fullDeployment.CreatedAt,
 		UpdatedAt:                    fullDeployment.UpdatedAt,
 		Application:                  fullDeployment.Application,
 		Environment:                  fullDeployment.Environment,
 		BuildTemplate:                fullDeployment.BuildTemplate,
 		DeploymentTemplate:           fullDeployment.DeploymentTemplate,
+		K8sCluster:                   fullDeployment.K8sCluster,
+		Server:                       fullDeployment.Server,
 	}
 
 	return response, nil
@@ -199,6 +242,11 @@ func (s *ApplicationService) ListDeploymentsByEnvironmentID(envID uint) ([]model
 	return s.deployRepo.ListByEnvironmentID(envID)
 }
 
+// ListDeploymentsByAppAndEnv 根据应用ID和环境ID获取部署配置列表（用于任务创建自动填充）
+func (s *ApplicationService) ListDeploymentsByAppAndEnv(appID, envID uint) ([]model.ApplicationDeployment, error) {
+	return s.deployRepo.ListByAppAndEnv(appID, envID)
+}
+
 // UpdateApplicationDeployment 更新应用部署配置
 func (s *ApplicationService) UpdateApplicationDeployment(id uint, req *model.ApplicationDeploymentRequest) (*model.ApplicationDeployment, error) {
 	// 获取现有部署配置
@@ -215,13 +263,10 @@ func (s *ApplicationService) UpdateApplicationDeployment(id uint, req *model.App
 		}
 	}
 
-	// 验证目标平台是否存在
-	//if req.Platform != 0 {
-	//	var cluster model.K8SCluster
-	//	if err := s.db.First(&cluster, req.Platform).Error; err != nil {
-	//		return nil, fmt.Errorf("K8s集群不存在: %v", err)
-	//	}
-	//}
+	// 校验部署目标及其条件性字段
+	if err := s.validateDeployTarget(req); err != nil {
+		return nil, err
+	}
 
 	// 验证构建模板（如果提供）
 	if req.BuildTemplateID != nil {
@@ -239,29 +284,38 @@ func (s *ApplicationService) UpdateApplicationDeployment(id uint, req *model.App
 		}
 	}
 
-	// 检查环境和集群组合的唯一性（排除自己）
+	// 检查(应用,环境,部署目标)组合的唯一性（排除自己）
 	appID := existingDeployment.ApplicationID
 	envID := req.EnvironmentID
 	if envID == 0 {
 		envID = existingDeployment.EnvironmentID
 	}
+	deployTarget := req.DeployTarget
+	if deployTarget == "" {
+		deployTarget = existingDeployment.DeployTarget
+	}
 
-	isUnique, err := s.deployRepo.CheckUniqueDeployment(appID, envID, &id)
+	isUnique, err := s.deployRepo.CheckUniqueDeployment(appID, envID, deployTarget, &id)
 	if err != nil {
 		return nil, fmt.Errorf("检查唯一性失败: %v", err)
 	}
 	if !isUnique {
-		return nil, fmt.Errorf("该环境和集群的组合已存在")
+		return nil, fmt.Errorf("该应用在相同环境和部署目标下已存在配置")
 	}
 
 	// 更新字段
 	if req.EnvironmentID != 0 {
 		existingDeployment.EnvironmentID = req.EnvironmentID
 	}
-
+	existingDeployment.DeployTarget = req.DeployTarget
+	existingDeployment.BuildSource = req.BuildSource
 	existingDeployment.Description = req.Description
 	existingDeployment.BuildTemplateID = req.BuildTemplateID
 	existingDeployment.DeploymentTemplateID = req.DeploymentTemplateID
+	existingDeployment.K8sClusterID = req.K8sClusterID
+	existingDeployment.K8sNamespace = req.K8sNamespace
+	existingDeployment.ServerID = req.ServerID
+	existingDeployment.DeployPath = req.DeployPath
 
 	if err := s.deployRepo.Update(existingDeployment); err != nil {
 		return nil, err
@@ -275,13 +329,15 @@ func (s *ApplicationService) UpdateApplicationDeployment(id uint, req *model.App
 
 	response := &model.ApplicationDeployment{
 		ID:                           fullDeployment.ID,
-		ApplicationDeploymentRequest: *req,
+		ApplicationDeploymentRequest: fullDeployment.ApplicationDeploymentRequest,
 		CreatedAt:                    fullDeployment.CreatedAt,
 		UpdatedAt:                    fullDeployment.UpdatedAt,
 		Application:                  fullDeployment.Application,
 		Environment:                  fullDeployment.Environment,
 		BuildTemplate:                fullDeployment.BuildTemplate,
 		DeploymentTemplate:           fullDeployment.DeploymentTemplate,
+		K8sCluster:                   fullDeployment.K8sCluster,
+		Server:                       fullDeployment.Server,
 	}
 
 	return response, nil

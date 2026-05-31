@@ -125,6 +125,7 @@ func (r *ApplicationDeploymentRepository) Create(deployment *model.ApplicationDe
 func (r *ApplicationDeploymentRepository) GetByID(id uint) (*model.ApplicationDeployment, error) {
 	var deployment model.ApplicationDeployment
 	if err := r.db.Preload("Application").Preload("Environment").Preload("K8sCluster").
+		Preload("Server").
 		Preload("BuildTemplate").Preload("DeploymentTemplate").First(&deployment, id).Error; err != nil {
 		return nil, err
 	}
@@ -135,7 +136,7 @@ func (r *ApplicationDeploymentRepository) GetByID(id uint) (*model.ApplicationDe
 func (r *ApplicationDeploymentRepository) ListByApplicationID(appID uint) ([]model.ApplicationDeployment, error) {
 	var deployments []model.ApplicationDeployment
 	if err := r.db.Where("application_id = ?", appID).
-		Preload("Environment").
+		Preload("Environment").Preload("K8sCluster").Preload("Server").
 		Preload("BuildTemplate").Preload("DeploymentTemplate").Find(&deployments).Error; err != nil {
 		return nil, err
 	}
@@ -147,7 +148,7 @@ func (r *ApplicationDeploymentRepository) ListByEnvironmentID(envID uint) ([]mod
 	var deployments []model.ApplicationDeployment
 	if err := r.db.Where("environment_id = ?", envID).
 		Preload("Application").Preload("Environment").
-		Preload("K8sCluster").Preload("BuildTemplate").
+		Preload("K8sCluster").Preload("Server").Preload("BuildTemplate").
 		Preload("DeploymentTemplate").Find(&deployments).Error; err != nil {
 		return nil, err
 	}
@@ -164,10 +165,10 @@ func (r *ApplicationDeploymentRepository) Delete(id uint) error {
 	return r.db.Delete(&model.ApplicationDeployment{}, id).Error
 }
 
-// CheckUniqueDeployment 检查环境和集群组合的唯一性
-func (r *ApplicationDeploymentRepository) CheckUniqueDeployment(appID, envID uint, excludeID *uint) (bool, error) {
+// CheckUniqueDeployment 检查(应用,环境,部署目标)组合的唯一性
+func (r *ApplicationDeploymentRepository) CheckUniqueDeployment(appID, envID uint, deployTarget string, excludeID *uint) (bool, error) {
 	query := r.db.Model(&model.ApplicationDeployment{}).
-		Where("application_id = ? AND environment_id = ?", appID, envID)
+		Where("application_id = ? AND environment_id = ? AND deploy_target = ?", appID, envID, deployTarget)
 
 	if excludeID != nil {
 		query = query.Where("id != ?", *excludeID)
@@ -179,4 +180,15 @@ func (r *ApplicationDeploymentRepository) CheckUniqueDeployment(appID, envID uin
 	}
 
 	return count == 0, nil
+}
+
+// ListByAppAndEnv 根据应用ID和环境ID获取部署配置列表（用于任务创建自动填充）
+func (r *ApplicationDeploymentRepository) ListByAppAndEnv(appID, envID uint) ([]model.ApplicationDeployment, error) {
+	var deployments []model.ApplicationDeployment
+	if err := r.db.Where("application_id = ? AND environment_id = ?", appID, envID).
+		Preload("Environment").Preload("K8sCluster").Preload("Server").
+		Preload("BuildTemplate").Preload("DeploymentTemplate").Find(&deployments).Error; err != nil {
+		return nil, err
+	}
+	return deployments, nil
 }

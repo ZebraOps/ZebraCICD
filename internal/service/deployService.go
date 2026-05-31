@@ -141,8 +141,12 @@ func (s *DeployService) ProcessDeploymentTask(ctx context.Context, taskID uint) 
 		return fmt.Errorf("harbor image not found: %s/%s:%s", task.HarborProject, task.ImageName, task.ImageTag)
 	}
 
-	// 6. 开始部署阶段 — 根据部署类型分支
-	switch task.DeployType {
+	// 6. 开始部署阶段 — 根据部署目标分支
+	deployTarget := task.DeployTarget
+	if deployTarget == "" {
+		deployTarget = task.DeployType // 兼容旧数据
+	}
+	switch deployTarget {
 	case "docker":
 		s.updateTaskStatus(taskID, "DEPLOYING", "开始部署到Linux主机(Docker)", "")
 		if err := s.deployToDocker(&task); err != nil {
@@ -155,10 +159,16 @@ func (s *DeployService) ProcessDeploymentTask(ctx context.Context, taskID uint) 
 			s.updateTaskStatus(taskID, "FAILED", fmt.Sprintf("K8s部署失败: %v", err), err.Error())
 			return err
 		}
+	case "linux":
+		s.updateTaskStatus(taskID, "DEPLOYING", "开始部署到Linux主机(文件提取+Nginx)", "")
+		if err := s.deployToLinux(&task); err != nil {
+			s.updateTaskStatus(taskID, "FAILED", fmt.Sprintf("Linux部署失败: %v", err), err.Error())
+			return err
+		}
 	default:
-		errMsg := fmt.Sprintf("未知的部署类型: %s", task.DeployType)
+		errMsg := fmt.Sprintf("未知的部署目标: %s", deployTarget)
 		s.updateTaskStatus(taskID, "FAILED", errMsg, errMsg)
-		return fmt.Errorf("unknown deploy type: %s", task.DeployType)
+		return fmt.Errorf("unknown deploy target: %s", deployTarget)
 	}
 
 	// 8. 部署成功
@@ -346,6 +356,134 @@ func (s *DeployService) renderDockerTemplate(templateContent string, task *model
 	rendered = strings.ReplaceAll(rendered, "{{PROJECT_NAME}}", projectName)
 	rendered = strings.ReplaceAll(rendered, "{{ENV_NAME}}", fmt.Sprintf("env-%d", task.EnvID))
 	rendered = strings.ReplaceAll(rendered, "{{DEPLOYMENT_NAME}}", task.DeploymentName)
+
+	return rendered
+}
+
+// deployToLinux 通过SSH部署前端静态文件到Linux主机(Nginx代理)
+// 使用 Docker 镜像提取方式：pull → create → cp → rm → nginx config → reload
+func (s *DeployService) deployToLinux(task *model.DeployTask) error {
+	// 1. 获取目标服务器信息
+	server, err := s.serverRepo.GetByID(task.ServerID)
+	if err != nil {
+		return fmt.Errorf("获取服务器 %d 失败: %v", task.ServerID, err)
+	}
+
+	// 2. 获取部署模板（类型必须为 linux）
+	if task.DeploymentTemplateID == nil || *task.DeploymentTemplateID == 0 {
+		return fmt.Errorf("Linux部署任务 %d 未指定部署模板(Nginx配置)", task.ID)
+	}
+	var deploymentTemplate model.DeploymentTemplate
+	if err := s.db.First(&deploymentTemplate, *task.DeploymentTemplateID).Error; err != nil {
+		return fmt.Errorf("获取部署模板 %d 失败: %v", *task.DeploymentTemplateID, err)
+	}
+	if deploymentTemplate.TemplateType != "linux" {
+		return fmt.Errorf("模板 %d 类型为 '%s'，期望 'linux'", deploymentTemplate.ID, deploymentTemplate.TemplateType)
+	}
+
+	// 3. 创建SSH客户端
+	sshClient, err := s.createSSHClientFromServer(server)
+	if err != nil {
+		return fmt.Errorf("SSH连接 %s 失败: %v", server.Host, err)
+	}
+	defer sshClient.Close()
+
+	// 4. Docker 镜像提取: pull → create → cp → rm
+	fullImageRef := fmt.Sprintf("%s/%s:%s", task.HarborProject, task.ImageName, task.ImageTag)
+
+	// 4a. Pull image
+	log.S().Infof("docker pull %s on %s", fullImageRef, server.Host)
+	_, stderr, exitCode, _ := sshClient.RunCommandOutput(fmt.Sprintf("docker pull %s 2>&1", fullImageRef))
+	if exitCode != 0 {
+		return fmt.Errorf("docker pull 失败 (exit=%d): %s", exitCode, stderr)
+	}
+
+	// 4b. Create temporary container (do not start)
+	containerName := fmt.Sprintf("zebra-extract-%d", task.ID)
+	log.S().Infof("docker create --name %s %s", containerName, fullImageRef)
+	_, stderr, exitCode, _ = sshClient.RunCommandOutput(fmt.Sprintf("docker create --name %s %s 2>&1", containerName, fullImageRef))
+	if exitCode != 0 {
+		return fmt.Errorf("docker create 失败 (exit=%d): %s", exitCode, stderr)
+	}
+
+	// 4c. 从模板 variables 中提取容器内源路径，默认 /app/dist
+	containerSourcePath := "/app/dist"
+	if deploymentTemplate.Variables != "" {
+		var vars map[string]interface{}
+		if err := yaml.Unmarshal([]byte(deploymentTemplate.Variables), &vars); err == nil {
+			if sp, ok := vars["source_path"].(string); ok && sp != "" {
+				containerSourcePath = sp
+			}
+		}
+	}
+
+	// 4d. 确保目标目录存在
+	deployPath := task.DeployPath
+	if deployPath == "" {
+		deployPath = fmt.Sprintf("/opt/zebra-deploy/%s", task.DeploymentName)
+	}
+	log.S().Infof("mkdir -p %s", deployPath)
+	_, _, exitCode, _ = sshClient.RunCommandOutput(fmt.Sprintf("mkdir -p %s 2>&1", deployPath))
+
+	// 4e. Copy files from container to deploy path
+	log.S().Infof("docker cp %s:%s/. %s/", containerName, containerSourcePath, deployPath)
+	_, stderr, exitCode, _ = sshClient.RunCommandOutput(
+		fmt.Sprintf("docker cp %s:%s/. %s/ 2>&1", containerName, containerSourcePath, deployPath))
+	if exitCode != 0 {
+		// Cleanup container before returning error
+		sshClient.RunCommandOutput(fmt.Sprintf("docker rm %s 2>&1", containerName))
+		return fmt.Errorf("docker cp 失败 (exit=%d): %s", exitCode, stderr)
+	}
+
+	// 4f. Remove temporary container
+	log.S().Infof("docker rm %s", containerName)
+	_, stderr, exitCode, _ = sshClient.RunCommandOutput(fmt.Sprintf("docker rm %s 2>&1", containerName))
+	if exitCode != 0 {
+		log.S().Warnf("docker rm %s 失败 (exit=%d): %s (非致命错误)", containerName, exitCode, stderr)
+	}
+
+	// 5. 渲染 Nginx 配置模板并上传
+	renderedNginxConfig := s.renderLinuxTemplate(deploymentTemplate.Content, task)
+	nginxConfigPath := fmt.Sprintf("/etc/nginx/conf.d/%s.conf", task.DeploymentName)
+	log.S().Infof("upload nginx config to %s:%s", server.Host, nginxConfigPath)
+	if err := sshClient.UploadFile(nginxConfigPath, []byte(renderedNginxConfig)); err != nil {
+		return fmt.Errorf("上传 Nginx 配置失败: %v", err)
+	}
+
+	// 6. 测试并重载 Nginx
+	log.S().Infof("nginx -t on %s", server.Host)
+	_, stderr, exitCode, _ = sshClient.RunCommandOutput("nginx -t 2>&1")
+	if exitCode != 0 {
+		return fmt.Errorf("nginx -t 测试失败 (exit=%d): %s", exitCode, stderr)
+	}
+	log.S().Infof("nginx -s reload on %s", server.Host)
+	_, stderr, exitCode, _ = sshClient.RunCommandOutput("nginx -s reload 2>&1")
+	if exitCode != 0 {
+		return fmt.Errorf("nginx -s reload 失败 (exit=%d): %s", exitCode, stderr)
+	}
+
+	return nil
+}
+
+// renderLinuxTemplate 渲染Linux/Nginx部署模板
+func (s *DeployService) renderLinuxTemplate(templateContent string, task *model.DeployTask) string {
+	var projectName string
+	var app model.Application
+	if err := s.db.First(&app, task.ProjectID).Error; err == nil {
+		projectName = app.EName
+	} else {
+		projectName = fmt.Sprintf("project-%d", task.ProjectID)
+	}
+
+	rendered := templateContent
+	rendered = strings.ReplaceAll(rendered, "\\n", "\n")
+	rendered = strings.ReplaceAll(rendered, "\r\n", "\n")
+	rendered = strings.ReplaceAll(rendered, "\r", "\n")
+	rendered = strings.ReplaceAll(rendered, "{{IMAGE_TAG}}", task.ImageTag)
+	rendered = strings.ReplaceAll(rendered, "{{PROJECT_NAME}}", projectName)
+	rendered = strings.ReplaceAll(rendered, "{{ENV_NAME}}", fmt.Sprintf("env-%d", task.EnvID))
+	rendered = strings.ReplaceAll(rendered, "{{DEPLOYMENT_NAME}}", task.DeploymentName)
+	rendered = strings.ReplaceAll(rendered, "{{DEPLOY_PATH}}", task.DeployPath)
 
 	return rendered
 }
