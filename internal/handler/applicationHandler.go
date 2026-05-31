@@ -137,7 +137,9 @@ func (r *ApplicationDeploymentRepository) ListByApplicationID(appID uint) ([]mod
 	var deployments []model.ApplicationDeployment
 	if err := r.db.Where("application_id = ?", appID).
 		Preload("Environment").Preload("K8sCluster").Preload("Server").
-		Preload("BuildTemplate").Preload("DeploymentTemplate").Find(&deployments).Error; err != nil {
+		Preload("BuildTemplate").Preload("DeploymentTemplate").
+		Preload("JenkinsPlatform").Preload("GitPlatform").Preload("ImageRepository").
+		Find(&deployments).Error; err != nil {
 		return nil, err
 	}
 	return deployments, nil
@@ -149,7 +151,9 @@ func (r *ApplicationDeploymentRepository) ListByEnvironmentID(envID uint) ([]mod
 	if err := r.db.Where("environment_id = ?", envID).
 		Preload("Application").Preload("Environment").
 		Preload("K8sCluster").Preload("Server").Preload("BuildTemplate").
-		Preload("DeploymentTemplate").Find(&deployments).Error; err != nil {
+		Preload("DeploymentTemplate").
+		Preload("JenkinsPlatform").Preload("GitPlatform").Preload("ImageRepository").
+		Find(&deployments).Error; err != nil {
 		return nil, err
 	}
 	return deployments, nil
@@ -187,7 +191,9 @@ func (r *ApplicationDeploymentRepository) ListByAppAndEnv(appID, envID uint) ([]
 	var deployments []model.ApplicationDeployment
 	if err := r.db.Where("application_id = ? AND environment_id = ?", appID, envID).
 		Preload("Environment").Preload("K8sCluster").Preload("Server").
-		Preload("BuildTemplate").Preload("DeploymentTemplate").Find(&deployments).Error; err != nil {
+		Preload("BuildTemplate").Preload("DeploymentTemplate").
+		Preload("JenkinsPlatform").Preload("GitPlatform").Preload("ImageRepository").
+		Find(&deployments).Error; err != nil {
 		return nil, err
 	}
 	return deployments, nil
