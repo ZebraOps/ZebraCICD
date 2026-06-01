@@ -416,61 +416,91 @@ func (jc *JenkinsClient) waitForBuildNumber(jobName string, queueID int) (int, e
 // ---- Credentials injection via Groovy Script Console ----
 
 // CreateOrUpdateUsernamePasswordCredential 通过 Groovy 脚本控制台创建或更新 UsernamePassword 凭据
+// 单层脚本：变量用 groovyEscape 直接插值，避免嵌套 GroovyShell + uberClassLoader（新版 Jenkins 不支持）
 func (jc *JenkinsClient) CreateOrUpdateUsernamePasswordCredential(id, username, password, description string) error {
 	if id == "" {
 		return fmt.Errorf("credential id cannot be empty")
 	}
 
-	// Groovy 脚本：先删除同名旧凭据，再创建新的
 	script := fmt.Sprintf(`
 import com.cloudbees.plugins.credentials.impl.UsernamePasswordCredentialsImpl
-import com.cloudbees.plugins.credentials.*
+import com.cloudbees.plugins.credentials.CredentialsScope
+import com.cloudbees.plugins.credentials.Domain
 import jenkins.model.Jenkins
+
+def credId = '%s'
+def credDesc = '%s'
+def credUser = '%s'
+def credPass = '%s'
 
 def domain = Domain.global()
 def store = Jenkins.instance.getExtensionList('com.cloudbees.plugins.credentials.SystemCredentialsProvider')[0].getStore()
-def existing = store.getCredentials(domain).find { it.id == '%s' }
+def existing = store.getCredentials(domain).find { it.id == credId }
 if (existing != null) { store.removeCredentials(domain, existing) }
-store.addCredentials(domain, new UsernamePasswordCredentialsImpl(CredentialsScope.GLOBAL, '%s', '%s', '%s', '%s'))
-println "credential %s created"
-`, groovyEscape(id), groovyEscape(id), groovyEscape(description), groovyEscape(username), groovyEscape(password), groovyEscape(id))
+store.addCredentials(domain, new UsernamePasswordCredentialsImpl(CredentialsScope.GLOBAL, credId, credDesc, credUser, credPass))
+println "credential " + credId + " created"
+`, groovyEscape(id), groovyEscape(description), groovyEscape(username), groovyEscape(password))
 
 	return jc.executeGroovyScript(script)
 }
 
 // CreateOrUpdateSecretTextCredential 通过 Groovy 脚本控制台创建或更新 SecretText 凭据
+// 两阶段策略：先尝试 StringCredentialsImpl，失败则 fallback 到 UsernamePasswordCredentialsImpl
 func (jc *JenkinsClient) CreateOrUpdateSecretTextCredential(id, secret, description string) error {
 	if id == "" {
 		return fmt.Errorf("credential id cannot be empty")
 	}
 
-	// 优先尝试 StringCredentialsImpl（需要 plain-credentials 插件）
-	// 如果插件不存在，fallback 到 UsernamePasswordCredentialsImpl（username=id, password=secret）
-	script := fmt.Sprintf(`
-import com.cloudbees.plugins.credentials.*
-import com.cloudbees.plugins.credentials.impl.UsernamePasswordCredentialsImpl
+	// Phase 1: 尝试 StringCredentialsImpl（需要 plain-credentials 插件）
+	phase1Script := fmt.Sprintf(`
+import com.cloudbees.plugins.credentials.CredentialsScope
+import com.cloudbees.plugins.credentials.Domain
+import org.jenkinsci.plugins.plaincredentials.impl.StringCredentialsImpl
+import com.cloudbees.plugins.credentials.Secret
 import jenkins.model.Jenkins
+
+def credId = '%s'
+def credDesc = '%s'
+def credSecret = '%s'
 
 def domain = Domain.global()
 def store = Jenkins.instance.getExtensionList('com.cloudbees.plugins.credentials.SystemCredentialsProvider')[0].getStore()
-def existing = store.getCredentials(domain).find { it.id == '%s' }
+def existing = store.getCredentials(domain).find { it.id == credId }
 if (existing != null) { store.removeCredentials(domain, existing) }
+store.addCredentials(domain, new StringCredentialsImpl(CredentialsScope.GLOBAL, credId, credDesc, Secret.fromString(credSecret)))
+println "credential " + credId + " created as SecretText"
+`, groovyEscape(id), groovyEscape(description), groovyEscape(secret))
 
-try {
-    import org.jenkinsci.plugins.plaincredentials.impl.StringCredentialsImpl
-    import com.cloudbees.plugins.credentials.Secret
-    store.addCredentials(domain, new StringCredentialsImpl(CredentialsScope.GLOBAL, '%s', '%s', Secret.fromString('%s')))
-    println "credential %s created as SecretText"
-} catch (Exception e) {
-    // plain-credentials 插件未安装，用 UsernamePassword 作为 fallback
-    // 在 checkout 中 withCredentials 使用 usernamePassword 时，username 变量会得到 token 的 ID，password 得到 token 值
-    store.addCredentials(domain, new UsernamePasswordCredentialsImpl(CredentialsScope.GLOBAL, '%s', '%s (token fallback)', '%s-token', '%s'))
-    println "credential %s created as UsernamePassword fallback"
-}
-`, groovyEscape(id), groovyEscape(id), groovyEscape(description), groovyEscape(secret), groovyEscape(id),
-		groovyEscape(id), groovyEscape(description), groovyEscape(id), groovyEscape(secret), groovyEscape(id))
+	err := jc.executeGroovyScript(phase1Script)
+	if err == nil {
+		log.S().Infof("SecretText credential %s created successfully (plain-credentials plugin available)", id)
+		return nil
+	}
 
-	return jc.executeGroovyScript(script)
+	// Phase 1 失败，fallback 到 UsernamePassword
+	log.S().Infof("SecretText credential creation failed for %s, falling back to UsernamePassword: %v", id, err)
+
+	// Phase 2: UsernamePassword fallback（token 作 password，占位用户名作 username）
+	phase2Script := fmt.Sprintf(`
+import com.cloudbees.plugins.credentials.impl.UsernamePasswordCredentialsImpl
+import com.cloudbees.plugins.credentials.CredentialsScope
+import com.cloudbees.plugins.credentials.Domain
+import jenkins.model.Jenkins
+
+def credId = '%s'
+def credDesc = '%s'
+def credUser = '%s'
+def credPass = '%s'
+
+def domain = Domain.global()
+def store = Jenkins.instance.getExtensionList('com.cloudbees.plugins.credentials.SystemCredentialsProvider')[0].getStore()
+def existing = store.getCredentials(domain).find { it.id == credId }
+if (existing != null) { store.removeCredentials(domain, existing) }
+store.addCredentials(domain, new UsernamePasswordCredentialsImpl(CredentialsScope.GLOBAL, credId, credDesc + " (token fallback)", credUser + "-token", credPass))
+println "credential " + credId + " created as UsernamePassword fallback"
+`, groovyEscape(id), groovyEscape(description), groovyEscape(id), groovyEscape(secret))
+
+	return jc.executeGroovyScript(phase2Script)
 }
 
 // executeGroovyScript 在 Jenkins 脚本控制台上执行 Groovy 脚本
@@ -502,13 +532,84 @@ func (jc *JenkinsClient) executeGroovyScript(script string) error {
 	}
 
 	// 检查输出中是否有异常信号
+	// Groovy 脚本成功执行时输出通常是简单的 println 内容（如 "credential xxx created"）
+	// 失败时 Jenkins 会返回包含 "Exception:" 的错误信息（编译错误或运行时异常）
+	// 注意：不再使用 !Contains("credential") 的排除条件，因为该条件会导致包含 "credential" 关键词的
+	// 异常输出被静默忽略（例如编译错误消息中可能同时出现 Exception 和 credential）
 	output := string(body)
-	if strings.Contains(output, "Exception:") && !strings.Contains(output, "credential") {
+	if strings.Contains(output, "Exception:") || strings.Contains(output, "ERROR:") {
 		return fmt.Errorf("groovy script execution error: %s", output)
 	}
 
 	log.S().Infof("Jenkins groovy script executed successfully, output: %s", strings.TrimSpace(output))
 	return nil
+}
+
+// executeGroovyScriptWithOutput 执行 Groovy 脚本并返回输出内容
+// 用于需要读取脚本输出结果的场景（如检查凭证是否存在）
+func (jc *JenkinsClient) executeGroovyScriptWithOutput(script string) (string, error) {
+	apiURL := fmt.Sprintf("%s/scriptText", jc.baseURL)
+	formData := url.Values{}
+	formData.Set("script", script)
+
+	req, err := http.NewRequest("POST", apiURL, strings.NewReader(formData.Encode()))
+	if err != nil {
+		return "", fmt.Errorf("failed to create request: %v", err)
+	}
+	req.SetBasicAuth(jc.username, jc.password)
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+	resp, err := jc.client.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("failed to execute groovy script: %v", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("failed to read script response: %v", err)
+	}
+
+	output := string(body)
+	if resp.StatusCode != http.StatusOK {
+		return output, fmt.Errorf("groovy script failed with status %d: %s", resp.StatusCode, output)
+	}
+
+	if strings.Contains(output, "Exception:") || strings.Contains(output, "ERROR:") {
+		return output, fmt.Errorf("groovy script execution error: %s", output)
+	}
+
+	return output, nil
+}
+
+// CredentialExists 检查 Jenkins 中是否已存在指定 ID 的凭证
+func (jc *JenkinsClient) CredentialExists(id string) (bool, error) {
+	if id == "" {
+		return false, fmt.Errorf("credential id cannot be empty")
+	}
+
+	script := fmt.Sprintf(`
+import com.cloudbees.plugins.credentials.Domain
+import jenkins.model.Jenkins
+
+def credId = '%s'
+
+def domain = Domain.global()
+def store = Jenkins.instance.getExtensionList('com.cloudbees.plugins.credentials.SystemCredentialsProvider')[0].getStore()
+def existing = store.getCredentials(domain).find { it.id == credId }
+if (existing != null) { println "EXISTS" } else { println "NOT_EXISTS" }
+`, groovyEscape(id))
+
+	output, err := jc.executeGroovyScriptWithOutput(script)
+	if err != nil {
+		return false, fmt.Errorf("failed to check credential existence: %v", err)
+	}
+
+	output = strings.TrimSpace(output)
+	if strings.Contains(output, "EXISTS") && !strings.Contains(output, "NOT_EXISTS") {
+		return true, nil
+	}
+	return false, nil
 }
 
 // groovyEscape 转义 Groovy 字串中的单引号和特殊字符（脚本用单引号定界）

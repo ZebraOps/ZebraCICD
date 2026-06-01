@@ -265,8 +265,12 @@ func (s *DeployService) triggerJenkinsBuild(task *model.DeployTask) (*core.Jenki
 					imageRepo.Password,
 					fmt.Sprintf("ZebraOps Harbor Credential (%s)", imageRepo.Name),
 				); err != nil {
-					log.S().Warnf("Failed to inject Harbor credential %s: %v", harborCredsID, err)
-					// 不阻断流程——凭据可能已存在
+					// 凭据注入失败，检查是否已存在；若不存在则阻断流程
+					exists, checkErr := jenkinsClient.CredentialExists(harborCredsID)
+					if checkErr != nil || !exists {
+						return nil, nil, fmt.Errorf("failed to inject Harbor credential %s and it does not exist in Jenkins: %v", harborCredsID, err)
+					}
+					log.S().Warnf("Harbor credential injection failed but %s already exists in Jenkins, continuing: %v", harborCredsID, err)
 				} else {
 					log.S().Infof("Harbor credential %s injected into Jenkins", harborCredsID)
 				}
@@ -275,7 +279,7 @@ func (s *DeployService) triggerJenkinsBuild(task *model.DeployTask) (*core.Jenki
 			}
 		}
 
-		// 3c. Git 平台：注入 Git 凭据
+	// 3c. Git 平台：注入 Git 凭据
 		if appDeploy.GitPlatformID != nil && *appDeploy.GitPlatformID > 0 {
 			var gitPlatform model.GitPlatform
 			if err := s.db.First(&gitPlatform, *appDeploy.GitPlatformID).Error; err == nil {
@@ -287,13 +291,22 @@ func (s *DeployService) triggerJenkinsBuild(task *model.DeployTask) (*core.Jenki
 					var authConfig struct {
 						Token string `json:"token"`
 					}
-					if err := json.Unmarshal([]byte(gitPlatform.AuthConfig), &authConfig); err == nil && authConfig.Token != "" {
+					if err := json.Unmarshal([]byte(gitPlatform.AuthConfig), &authConfig); err != nil {
+						log.S().Warnf("Failed to parse AuthConfig JSON for GitPlatform %d (token type): %v", gitPlatform.ID, err)
+					} else if authConfig.Token == "" {
+						log.S().Warnf("AuthConfig token is empty for GitPlatform %d", gitPlatform.ID)
+					} else {
 						if err := jenkinsClient.CreateOrUpdateSecretTextCredential(
 							gitCredsID,
 							authConfig.Token,
 							fmt.Sprintf("ZebraOps Git Token (%s)", gitPlatform.Name),
 						); err != nil {
-							log.S().Warnf("Failed to inject Git token credential %s: %v", gitCredsID, err)
+							// 凭据注入失败，检查是否已存在；若不存在则阻断流程
+							exists, checkErr := jenkinsClient.CredentialExists(gitCredsID)
+							if checkErr != nil || !exists {
+								return nil, nil, fmt.Errorf("failed to inject Git token credential %s and it does not exist in Jenkins: %v", gitCredsID, err)
+							}
+							log.S().Warnf("Git token credential injection failed but %s already exists in Jenkins, continuing: %v", gitCredsID, err)
 						} else {
 							log.S().Infof("Git token credential %s injected into Jenkins", gitCredsID)
 						}
@@ -304,14 +317,21 @@ func (s *DeployService) triggerJenkinsBuild(task *model.DeployTask) (*core.Jenki
 						Username string `json:"username"`
 						Password string `json:"password"`
 					}
-					if err := json.Unmarshal([]byte(gitPlatform.AuthConfig), &authConfig); err == nil {
+					if err := json.Unmarshal([]byte(gitPlatform.AuthConfig), &authConfig); err != nil {
+						log.S().Warnf("Failed to parse AuthConfig JSON for GitPlatform %d (password type): %v", gitPlatform.ID, err)
+					} else {
 						if err := jenkinsClient.CreateOrUpdateUsernamePasswordCredential(
 							gitCredsID,
 							authConfig.Username,
 							authConfig.Password,
 							fmt.Sprintf("ZebraOps Git Credential (%s)", gitPlatform.Name),
 						); err != nil {
-							log.S().Warnf("Failed to inject Git credential %s: %v", gitCredsID, err)
+							// 凭据注入失败，检查是否已存在；若不存在则阻断流程
+							exists, checkErr := jenkinsClient.CredentialExists(gitCredsID)
+							if checkErr != nil || !exists {
+								return nil, nil, fmt.Errorf("failed to inject Git credential %s and it does not exist in Jenkins: %v", gitCredsID, err)
+							}
+							log.S().Warnf("Git credential injection failed but %s already exists in Jenkins, continuing: %v", gitCredsID, err)
 						} else {
 							log.S().Infof("Git credential %s injected into Jenkins", gitCredsID)
 						}
