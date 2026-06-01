@@ -240,6 +240,10 @@ func (s *DeployService) triggerJenkinsBuild(task *model.DeployTask) (*core.Jenki
 	// 尝试查找部署配置来获取平台关联
 	if err := s.db.Where("application_id = ? AND environment_id = ?", task.ProjectID, task.EnvID).First(&appDeploy).Error; err == nil {
 		// 查到了部署配置，使用平台关联数据
+		credentialMode := appDeploy.CredentialMode
+		if credentialMode == "" {
+			credentialMode = "auto_create"
+		}
 
 		// 3a. Jenkins 平台：如果关联了，创建专用客户端
 		if appDeploy.JenkinsPlatformID != nil && *appDeploy.JenkinsPlatformID > 0 {
@@ -279,8 +283,26 @@ func (s *DeployService) triggerJenkinsBuild(task *model.DeployTask) (*core.Jenki
 			}
 		}
 
-	// 3c. Git 平台：注入 Git 凭据
-		if appDeploy.GitPlatformID != nil && *appDeploy.GitPlatformID > 0 {
+		if credentialMode == "manual_select" {
+			if appDeploy.JenkinsCredentialID == nil || *appDeploy.JenkinsCredentialID == 0 {
+				return nil, nil, fmt.Errorf("deployment is in manual_select mode but jenkins_credential_id is empty")
+			}
+
+			var selectedCred model.JenkinsCredential
+			if err := s.db.First(&selectedCred, *appDeploy.JenkinsCredentialID).Error; err != nil {
+				return nil, nil, fmt.Errorf("failed to load selected Jenkins credential %d: %v", *appDeploy.JenkinsCredentialID, err)
+			}
+			if selectedCred.Status != "active" {
+				return nil, nil, fmt.Errorf("selected Jenkins credential %s is not active", selectedCred.CredentialID)
+			}
+			if appDeploy.JenkinsPlatformID != nil && *appDeploy.JenkinsPlatformID > 0 && selectedCred.JenkinsPlatformID != *appDeploy.JenkinsPlatformID {
+				return nil, nil, fmt.Errorf("selected Jenkins credential %s does not belong to Jenkins platform %d", selectedCred.CredentialID, *appDeploy.JenkinsPlatformID)
+			}
+
+			gitCredsID = selectedCred.CredentialID
+			log.S().Infof("Using selected Jenkins credential %s for task %d in manual_select mode", gitCredsID, task.ID)
+		} else if appDeploy.GitPlatformID != nil && *appDeploy.GitPlatformID > 0 {
+			// 3c. Git 平台：自动注入 Git 凭据
 			var gitPlatform model.GitPlatform
 			if err := s.db.First(&gitPlatform, *appDeploy.GitPlatformID).Error; err == nil {
 				gitCredsID = fmt.Sprintf("zebra-git-%d", gitPlatform.ID)

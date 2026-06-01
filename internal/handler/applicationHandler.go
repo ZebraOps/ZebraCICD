@@ -126,7 +126,9 @@ func (r *ApplicationDeploymentRepository) GetByID(id uint) (*model.ApplicationDe
 	var deployment model.ApplicationDeployment
 	if err := r.db.Preload("Application").Preload("Environment").Preload("K8sCluster").
 		Preload("Server").
-		Preload("BuildTemplate").Preload("DeploymentTemplate").First(&deployment, id).Error; err != nil {
+		Preload("BuildTemplate").Preload("DeploymentTemplate").
+		Preload("JenkinsPlatform").Preload("JenkinsCredential").Preload("GitPlatform").Preload("ImageRepository").
+		First(&deployment, id).Error; err != nil {
 		return nil, err
 	}
 	return &deployment, nil
@@ -138,7 +140,7 @@ func (r *ApplicationDeploymentRepository) ListByApplicationID(appID uint) ([]mod
 	if err := r.db.Where("application_id = ?", appID).
 		Preload("Environment").Preload("K8sCluster").Preload("Server").
 		Preload("BuildTemplate").Preload("DeploymentTemplate").
-		Preload("JenkinsPlatform").Preload("GitPlatform").Preload("ImageRepository").
+		Preload("JenkinsPlatform").Preload("JenkinsCredential").Preload("GitPlatform").Preload("ImageRepository").
 		Find(&deployments).Error; err != nil {
 		return nil, err
 	}
@@ -152,7 +154,7 @@ func (r *ApplicationDeploymentRepository) ListByEnvironmentID(envID uint) ([]mod
 		Preload("Application").Preload("Environment").
 		Preload("K8sCluster").Preload("Server").Preload("BuildTemplate").
 		Preload("DeploymentTemplate").
-		Preload("JenkinsPlatform").Preload("GitPlatform").Preload("ImageRepository").
+		Preload("JenkinsPlatform").Preload("JenkinsCredential").Preload("GitPlatform").Preload("ImageRepository").
 		Find(&deployments).Error; err != nil {
 		return nil, err
 	}
@@ -192,7 +194,7 @@ func (r *ApplicationDeploymentRepository) ListByAppAndEnv(appID, envID uint) ([]
 	if err := r.db.Where("application_id = ? AND environment_id = ?", appID, envID).
 		Preload("Environment").Preload("K8sCluster").Preload("Server").
 		Preload("BuildTemplate").Preload("DeploymentTemplate").
-		Preload("JenkinsPlatform").Preload("GitPlatform").Preload("ImageRepository").
+		Preload("JenkinsPlatform").Preload("JenkinsCredential").Preload("GitPlatform").Preload("ImageRepository").
 		Find(&deployments).Error; err != nil {
 		return nil, err
 	}

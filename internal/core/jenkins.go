@@ -425,7 +425,7 @@ func (jc *JenkinsClient) CreateOrUpdateUsernamePasswordCredential(id, username, 
 	script := fmt.Sprintf(`
 import com.cloudbees.plugins.credentials.impl.UsernamePasswordCredentialsImpl
 import com.cloudbees.plugins.credentials.CredentialsScope
-import com.cloudbees.plugins.credentials.Domain
+import com.cloudbees.plugins.credentials.domains.Domain
 import jenkins.model.Jenkins
 
 def credId = '%s'
@@ -454,7 +454,7 @@ func (jc *JenkinsClient) CreateOrUpdateSecretTextCredential(id, secret, descript
 	// Phase 1: 尝试 StringCredentialsImpl（需要 plain-credentials 插件）
 	phase1Script := fmt.Sprintf(`
 import com.cloudbees.plugins.credentials.CredentialsScope
-import com.cloudbees.plugins.credentials.Domain
+import com.cloudbees.plugins.credentials.domains.Domain
 import org.jenkinsci.plugins.plaincredentials.impl.StringCredentialsImpl
 import com.cloudbees.plugins.credentials.Secret
 import jenkins.model.Jenkins
@@ -484,7 +484,7 @@ println "credential " + credId + " created as SecretText"
 	phase2Script := fmt.Sprintf(`
 import com.cloudbees.plugins.credentials.impl.UsernamePasswordCredentialsImpl
 import com.cloudbees.plugins.credentials.CredentialsScope
-import com.cloudbees.plugins.credentials.Domain
+import com.cloudbees.plugins.credentials.domains.Domain
 import jenkins.model.Jenkins
 
 def credId = '%s'
@@ -589,7 +589,7 @@ func (jc *JenkinsClient) CredentialExists(id string) (bool, error) {
 	}
 
 	script := fmt.Sprintf(`
-import com.cloudbees.plugins.credentials.Domain
+import com.cloudbees.plugins.credentials.domains.Domain
 import jenkins.model.Jenkins
 
 def credId = '%s'

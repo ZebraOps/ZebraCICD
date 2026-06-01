@@ -2,6 +2,7 @@ package service
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/ZebraOps/ZebraCICD/internal/handler"
 	"github.com/ZebraOps/ZebraCICD/internal/model"
@@ -153,6 +154,49 @@ func (s *ApplicationService) validateDeployTarget(req *model.ApplicationDeployme
 	return nil
 }
 
+func (s *ApplicationService) validateCredentialMode(req *model.ApplicationDeploymentRequest) error {
+	mode := strings.TrimSpace(req.CredentialMode)
+	if mode == "" {
+		mode = "auto_create"
+	}
+	if mode != "auto_create" && mode != "manual_select" {
+		return fmt.Errorf("credential_mode 仅支持 auto_create 或 manual_select")
+	}
+	req.CredentialMode = mode
+
+	if req.JenkinsPlatformID != nil && *req.JenkinsPlatformID > 0 {
+		var platform model.JenkinsPlatform
+		if err := s.db.First(&platform, *req.JenkinsPlatformID).Error; err != nil {
+			return fmt.Errorf("Jenkins平台不存在: %v", err)
+		}
+	}
+
+	if mode == "manual_select" {
+		if req.JenkinsPlatformID == nil || *req.JenkinsPlatformID == 0 {
+			return fmt.Errorf("手动选择模式必须先选择 Jenkins 平台")
+		}
+		if req.JenkinsCredentialID == nil || *req.JenkinsCredentialID == 0 {
+			return fmt.Errorf("手动选择模式必须指定 Jenkins 凭据")
+		}
+
+		var cred model.JenkinsCredential
+		if err := s.db.First(&cred, *req.JenkinsCredentialID).Error; err != nil {
+			return fmt.Errorf("Jenkins凭据不存在: %v", err)
+		}
+		if cred.JenkinsPlatformID != *req.JenkinsPlatformID {
+			return fmt.Errorf("所选 Jenkins 凭据不属于当前平台")
+		}
+		if cred.Status != "active" {
+			return fmt.Errorf("所选 Jenkins 凭据不可用，当前状态: %s", cred.Status)
+		}
+		return nil
+	}
+
+	// 自动创建模式不依赖手动凭据
+	req.JenkinsCredentialID = nil
+	return nil
+}
+
 // CreateApplicationDeployment 创建应用部署配置
 func (s *ApplicationService) CreateApplicationDeployment(req *model.ApplicationDeploymentRequest) (*model.ApplicationDeployment, error) {
 	// 验证应用服务是否存在
@@ -169,6 +213,10 @@ func (s *ApplicationService) CreateApplicationDeployment(req *model.ApplicationD
 
 	// 校验部署目标及其条件性字段
 	if err := s.validateDeployTarget(req); err != nil {
+		return nil, err
+	}
+
+	if err := s.validateCredentialMode(req); err != nil {
 		return nil, err
 	}
 
@@ -268,6 +316,10 @@ func (s *ApplicationService) UpdateApplicationDeployment(id uint, req *model.App
 		return nil, err
 	}
 
+	if err := s.validateCredentialMode(req); err != nil {
+		return nil, err
+	}
+
 	// 验证构建模板（如果提供）
 	if req.BuildTemplateID != nil {
 		var buildTemplate model.BuildTemplate
@@ -317,8 +369,10 @@ func (s *ApplicationService) UpdateApplicationDeployment(id uint, req *model.App
 	existingDeployment.ServerID = req.ServerID
 	existingDeployment.DeployPath = req.DeployPath
 	existingDeployment.JenkinsPlatformID = req.JenkinsPlatformID
+	existingDeployment.JenkinsCredentialID = req.JenkinsCredentialID
 	existingDeployment.GitPlatformID = req.GitPlatformID
 	existingDeployment.ImageRepoID = req.ImageRepoID
+	existingDeployment.CredentialMode = req.CredentialMode
 
 	if err := s.deployRepo.Update(existingDeployment); err != nil {
 		return nil, err

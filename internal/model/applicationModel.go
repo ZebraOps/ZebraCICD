@@ -23,8 +23,8 @@ type ApplicationResponse struct {
 	HealthCheckType string            `gorm:"size:50;comment:健康检查类型(http/tcp/custom)" json:"health_check_type"`
 	HealthCheckURL  string            `gorm:"size:255;comment:健康检查URL" json:"health_check_url"`
 	Description     string            `gorm:"type:text;comment:描述" json:"description"`
-	Department      string            `json:"department"`   // 归属部门（来自关联仓库）
-	Language        string            `json:"language"`     // 开发语言（来自关联仓库）
+	Department      string            `json:"department"` // 归属部门（来自关联仓库）
+	Language        string            `json:"language"`   // 开发语言（来自关联仓库）
 	CreatedAt       timeutil.JSONTime `gorm:"comment:创建时间" json:"created_at"`
 	UpdatedAt       timeutil.JSONTime `gorm:"comment:更新时间" json:"updated_at"`
 	DeploymentCount int64             `json:"deployment_count"` // 部署配置数量
@@ -42,7 +42,7 @@ type Application struct {
 	Deployments []ApplicationDeployment `gorm:"foreignKey:ApplicationID" json:"deployments,omitempty"`
 
 	// 关联构建模板的多对多关系
-	BuildTemplates      []BuildTemplate      `gorm:"many2many:build_template_applications;" json:"build_templates,omitempty"`
+	BuildTemplates []BuildTemplate `gorm:"many2many:build_template_applications;" json:"build_templates,omitempty"`
 	// 关联部署模板的多对多关系
 	DeploymentTemplates []DeploymentTemplate `gorm:"many2many:deployment_template_applications;" json:"deployment_templates,omitempty"`
 }
@@ -52,6 +52,7 @@ type ApplicationDeploymentRequest struct {
 	EnvironmentID        uint   `gorm:"not null;comment:环境ID" json:"environment_id"`
 	DeployTarget         string `gorm:"size:50;not null;default:'k8s';comment:部署目标(k8s/docker/linux)" json:"deploy_target"`
 	BuildSource          string `gorm:"size:50;default:'tag';comment:构建源(tag/branch)" json:"build_source"`
+	CredentialMode       string `gorm:"size:30;default:'auto_create';comment:Jenkins凭据模式(auto_create/manual_select)" json:"credential_mode"`
 	Description          string `gorm:"type:text;comment:描述" json:"description"`
 	BuildTemplateID      *uint  `gorm:"comment:构建模板ID" json:"build_template_id"`
 	DeploymentTemplateID *uint  `gorm:"comment:部署模板ID" json:"deployment_template_id"`
@@ -60,9 +61,10 @@ type ApplicationDeploymentRequest struct {
 	ServerID             *uint  `gorm:"comment:目标服务器ID(docker/linux)" json:"server_id"`
 	DeployPath           string `gorm:"size:500;comment:部署路径(linux/Nginx代理目录)" json:"deploy_path"`
 	// 新增：平台关联字段（nullable，兼容旧数据）
-	JenkinsPlatformID    *uint  `gorm:"index;comment:Jenkins平台ID" json:"jenkins_platform_id"`
-	GitPlatformID        *uint  `gorm:"index;comment:Git平台ID" json:"git_platform_id"`
-	ImageRepoID          *uint  `gorm:"index;comment:镜像仓库ID" json:"image_repo_id"`
+	JenkinsPlatformID   *uint `gorm:"index;comment:Jenkins平台ID" json:"jenkins_platform_id"`
+	JenkinsCredentialID *uint `gorm:"index;comment:手动选择的Jenkins凭据ID" json:"jenkins_credential_id"`
+	GitPlatformID       *uint `gorm:"index;comment:Git平台ID" json:"git_platform_id"`
+	ImageRepoID         *uint `gorm:"index;comment:镜像仓库ID" json:"image_repo_id"`
 }
 
 type ApplicationDeploymentResponse struct {
@@ -92,7 +94,8 @@ type ApplicationDeployment struct {
 	K8sCluster         *K8SCluster         `gorm:"foreignKey:K8sClusterID" json:"k8s_cluster,omitempty"`
 	Server             *Server             `gorm:"foreignKey:ServerID" json:"server,omitempty"`
 	// 新增：平台关联
-	JenkinsPlatform    *JenkinsPlatform    `gorm:"foreignKey:JenkinsPlatformID" json:"jenkins_platform,omitempty"`
-	GitPlatform        *GitPlatform        `gorm:"foreignKey:GitPlatformID" json:"git_platform,omitempty"`
-	ImageRepository    *ImageRepository    `gorm:"foreignKey:ImageRepoID" json:"image_repository,omitempty"`
+	JenkinsPlatform   *JenkinsPlatform   `gorm:"foreignKey:JenkinsPlatformID" json:"jenkins_platform,omitempty"`
+	JenkinsCredential *JenkinsCredential `gorm:"foreignKey:JenkinsCredentialID" json:"jenkins_credential,omitempty"`
+	GitPlatform       *GitPlatform       `gorm:"foreignKey:GitPlatformID" json:"git_platform,omitempty"`
+	ImageRepository   *ImageRepository   `gorm:"foreignKey:ImageRepoID" json:"image_repository,omitempty"`
 }
