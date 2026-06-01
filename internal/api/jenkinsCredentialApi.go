@@ -3,6 +3,7 @@ package api
 import (
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/ZebraOps/ZebraCICD/internal/model"
 	"github.com/ZebraOps/ZebraCICD/internal/service"
@@ -24,9 +25,13 @@ func CreateJenkinsCredentialHandler(c *gin.Context, svc *service.JenkinsCredenti
 }
 
 func ListJenkinsCredentialsHandler(c *gin.Context, svc *service.JenkinsCredentialService) {
-	name := c.Query("name")
-	credType := c.Query("credential_type")
-	status := c.Query("status")
+	name := strings.TrimSpace(c.Query("name"))
+	if name == "" {
+		// 前端按列搜索凭据ID时会传 credential_id，这里兼容映射到模糊搜索字段
+		name = strings.TrimSpace(c.Query("credential_id"))
+	}
+	credType := strings.TrimSpace(c.Query("credential_type"))
+	status := strings.TrimSpace(c.Query("status"))
 
 	var platformID uint
 	if pidStr := c.Query("jenkins_platform_id"); pidStr != "" {

@@ -63,7 +63,7 @@ func (r *JenkinsCredentialRepository) ListWithConditions(conditions types.Jenkin
 		db = db.Where("jenkins_platform_id = ?", conditions.JenkinsPlatformID)
 	}
 	if conditions.Name != "" {
-		db = db.Where("credential_id LIKE ? OR display_name LIKE ?", "%"+conditions.Name+"%", "%"+conditions.Name+"%")
+		db = db.Where("credential_id ILIKE ? OR display_name ILIKE ?", "%"+conditions.Name+"%", "%"+conditions.Name+"%")
 	}
 	if conditions.CredentialType != "" {
 		db = db.Where("credential_type = ?", conditions.CredentialType)
