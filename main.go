@@ -43,22 +43,22 @@ func main() {
 		log.S().Error("Failed to init logger")
 		os.Exit(1)
 	}
-	
+
 	logger := log.L()
 	logger.Info("========================================")
 	logger.Info("ZebraCICD 正在启动...")
 	logger.Info("========================================")
-	
+
 	// --- 初始化 Nacos 客户端（可选） ---
 	var nacos *nacosClient.Client
 	var nacosLoader *nacosClient.CICDConfigLoader
-	
+
 	if cfg.NacosServerAddr != "" {
 		logger.Info("检测到 Nacos 配置，开始初始化 Nacos 客户端",
 			zap.String("server", cfg.NacosServerAddr),
 			zap.String("namespace", cfg.NacosNamespace),
 		)
-		
+
 		nc, err := nacosClient.NewClient(nacosClient.Config{
 			ServerAddr: cfg.NacosServerAddr,
 			Namespace:  cfg.NacosNamespace,
@@ -67,29 +67,29 @@ func main() {
 			Group:      cfg.NacosGroup,
 			LogLevel:   cfg.Logging.Level,
 		}, logger)
-		
+
 		if err != nil {
 			logger.Error("Nacos 客户端初始化失败，将使用本地配置", zap.Error(err))
 		} else {
 			nacos = nc
 			nacosLoader = nacosClient.NewCICDConfigLoader(nc, logger)
-			
+
 			// 从 Nacos 加载敏感配置
 			logger.Info("正在从 Nacos 加载配置...")
-			
+
 			configMap := map[string]string{
-				"database_url":      cfg.DatabaseURL,
-				"gitlab_token":      cfg.GitLabToken,
-				"gitlab_url":        cfg.GitLabURL,
-				"jenkins_url":       cfg.JenkinsURL,
-				"jenkins_password":  cfg.JenkinsPass,
-				"harbor_url":        cfg.HarborURL,
-				"redis_addr":        cfg.RedisAddr,
-				"redis_password":    cfg.RedisPassword,
+				"database_url":     cfg.DatabaseURL,
+				"gitlab_token":     cfg.GitLabToken,
+				"gitlab_url":       cfg.GitLabURL,
+				"jenkins_url":      cfg.JenkinsURL,
+				"jenkins_password": cfg.JenkinsPass,
+				"harbor_url":       cfg.HarborURL,
+				"redis_addr":       cfg.RedisAddr,
+				"redis_password":   cfg.RedisPassword,
 			}
-			
+
 			nacosLoader.LoadAllConfigs(configMap)
-			
+
 			// 更新配置
 			cfg.DatabaseURL = configMap["database_url"]
 			cfg.GitLabToken = configMap["gitlab_token"]
@@ -99,13 +99,13 @@ func main() {
 			cfg.HarborURL = configMap["harbor_url"]
 			cfg.RedisAddr = configMap["redis_addr"]
 			cfg.RedisPassword = configMap["redis_password"]
-			
+
 			logger.Info("✓ Nacos 配置加载完成")
 		}
 	} else {
 		logger.Info("未配置 Nacos，使用本地配置")
 	}
-	
+
 	logger.Info("当前配置",
 		zap.String("port", cfg.Port),
 		zap.String("gitlabURL", cfg.GitLabURL),
@@ -147,21 +147,22 @@ func main() {
 		&model.Language{},
 		&model.GitPlatform{},
 		&model.JenkinsPlatform{},
+		&model.JenkinsCredential{},
 	); err != nil {
 		log.S().Fatalf("auto migrate failed: %v", err)
 	}
 
-		// 数据回填：为旧记录填充 deploy_target
-		if err := db.Model(&model.ApplicationDeployment{}).
-			Where("deploy_target = '' OR deploy_target IS NULL").
-			Update("deploy_target", "k8s").Error; err != nil {
-			log.S().Warnf("backfill application_deployments.deploy_target: %v", err)
-		}
-		if err := db.Model(&model.DeployTask{}).
-			Where("deploy_target = '' OR deploy_target IS NULL").
-			Update("deploy_target", gorm.Expr("deploy_type")).Error; err != nil {
-			log.S().Warnf("backfill deploy_tasks.deploy_target: %v", err)
-		}
+	// 数据回填：为旧记录填充 deploy_target
+	if err := db.Model(&model.ApplicationDeployment{}).
+		Where("deploy_target = '' OR deploy_target IS NULL").
+		Update("deploy_target", "k8s").Error; err != nil {
+		log.S().Warnf("backfill application_deployments.deploy_target: %v", err)
+	}
+	if err := db.Model(&model.DeployTask{}).
+		Where("deploy_target = '' OR deploy_target IS NULL").
+		Update("deploy_target", gorm.Expr("deploy_type")).Error; err != nil {
+		log.S().Warnf("backfill deploy_tasks.deploy_target: %v", err)
+	}
 
 	// 初始化 Asynq 队列客户端
 	queueClient := queue.NewClient(cfg.RedisAddr, cfg.RedisPassword, cfg.RedisDB)
@@ -232,6 +233,10 @@ func main() {
 	jenkinsPlatformRepo := handler.NewJenkinsPlatformRepository(db)
 	jenkinsPlatformSvc := service.NewJenkinsPlatformService(jenkinsPlatformRepo)
 
+	// Jenkins凭据
+	jenkinsCredentialRepo := handler.NewJenkinsCredentialRepository(db)
+	jenkinsCredentialSvc := service.NewJenkinsCredentialService(jenkinsCredentialRepo, jenkinsPlatformSvc)
+
 	// 注册路由
 	api.RegisterK8SRoutes(r, k8sSvc)
 	api.RegisterServerRoutes(r, serverSvc)
@@ -245,6 +250,7 @@ func main() {
 	api.RegisterLanguageRoutes(r, languageSvc)
 	api.RegisterGitPlatformRoutes(r, gitPlatformSvc)
 	api.RegisterJenkinsPlatformRoutes(r, jenkinsPlatformSvc)
+	api.RegisterJenkinsCredentialRoutes(r, jenkinsCredentialSvc)
 	api.RegisterDocsRoutes(r)
 
 	// --- 启动 Asynq worker server ---
@@ -261,13 +267,13 @@ func main() {
 	if nacos != nil {
 		serviceIP := getLocalIP()
 		servicePort := getPortNumber(cfg.Port)
-		
+
 		err := nacos.RegisterInstance("zebra-cicd", serviceIP, uint64(servicePort), map[string]string{
 			"version":     "0.1.0",
 			"endpoints":   "/api,/health",
 			"description": "ZebraCICD 持续集成部署服务",
 		})
-		
+
 		if err != nil {
 			logger.Error("服务注册失败", zap.Error(err))
 		} else {
@@ -288,7 +294,7 @@ func main() {
 	logger.Info("========================================")
 	logger.Info("ZebraCICD 启动成功", zap.String("addr", addr))
 	logger.Info("========================================")
-	
+
 	// --- 启动服务器，支持优雅关闭 ---
 	srv := make(chan error, 1)
 	go func() {
@@ -304,12 +310,12 @@ func main() {
 		logger.Fatal("服务器启动失败", zap.Error(err))
 	case sig := <-quit:
 		logger.Info("收到退出信号，开始优雅关闭...", zap.String("signal", sig.String()))
-		
+
 		// 注销 Nacos 服务
 		if nacos != nil {
 			serviceIP := getLocalIP()
 			servicePort := getPortNumber(cfg.Port)
-			
+
 			err := nacos.DeregisterInstance("zebra-cicd", serviceIP, uint64(servicePort))
 			if err != nil {
 				logger.Error("服务注销失败", zap.Error(err))
@@ -332,13 +338,13 @@ func getLocalIP() string {
 	if ip := os.Getenv("SERVICE_IP"); ip != "" {
 		return ip
 	}
-	
+
 	conn, err := net.Dial("udp", "8.8.8.8:80")
 	if err != nil {
 		return "127.0.0.1"
 	}
 	defer conn.Close()
-	
+
 	localAddr := conn.LocalAddr().(*net.UDPAddr)
 	return localAddr.IP.String()
 }

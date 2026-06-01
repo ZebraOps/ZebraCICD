@@ -134,16 +134,24 @@ type LanguageQueryConditions struct {
 
 // GitPlatformQueryConditions Git平台查询条件
 type GitPlatformQueryConditions struct {
-	Name          string `json:"name"`
-	PlatformType  string `json:"platform_type"`
-	AuthType      string `json:"auth_type"`
-	Status        string `json:"status"`
+	Name         string `json:"name"`
+	PlatformType string `json:"platform_type"`
+	AuthType     string `json:"auth_type"`
+	Status       string `json:"status"`
 }
 
 // JenkinsPlatformQueryConditions Jenkins平台查询条件
 type JenkinsPlatformQueryConditions struct {
 	Name   string `json:"name"`
 	Status string `json:"status"`
+}
+
+// JenkinsCredentialQueryConditions Jenkins凭据查询条件
+type JenkinsCredentialQueryConditions struct {
+	Name              string `json:"name"`
+	CredentialType    string `json:"credential_type"`
+	Status            string `json:"status"`
+	JenkinsPlatformID uint   `json:"jenkins_platform_id"`
 }
 
 // DeployTaskQueryConditions 部署任务查询条件

@@ -612,6 +612,53 @@ if (existing != null) { println "EXISTS" } else { println "NOT_EXISTS" }
 	return false, nil
 }
 
+// JenkinsCredentialItem 表示从 Jenkins 凭据 API 返回的单条凭据元数据
+type JenkinsCredentialItem struct {
+	ID          string `json:"id"`
+	TypeName    string `json:"typeName"`    // 如 "Username with password"
+	DisplayName string `json:"displayName"` // 如 "admin/****** (my-id)"
+	Description string `json:"description"`
+	FullName    string `json:"fullName"`
+	// 以下字段仅部分类型有值（Jenkins API 会按类型返回额外字段）
+	Username string `json:"username,omitempty"`
+	Scope    string `json:"scope,omitempty"`
+}
+
+// ListCredentials 通过 Jenkins Credentials Plugin REST API 列出全局凭据
+// 调用路径: GET {baseURL}/credentials/store/system/domain/_/api/json?depth=2
+func (jc *JenkinsClient) ListCredentials() ([]JenkinsCredentialItem, error) {
+	apiURL := fmt.Sprintf("%s/credentials/store/system/domain/_/api/json?depth=2", jc.baseURL)
+	req, err := http.NewRequest("GET", apiURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %v", err)
+	}
+	req.SetBasicAuth(jc.username, jc.password)
+
+	resp, err := jc.client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list credentials: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusNotFound {
+		return nil, fmt.Errorf("credentials plugin not available or not accessible (404)")
+	}
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("list credentials failed with status %d: %s", resp.StatusCode, string(body))
+	}
+
+	var result struct {
+		Credentials []JenkinsCredentialItem `json:"credentials"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("failed to decode credentials response: %v", err)
+	}
+
+	log.S().Infof("ListCredentials: fetched %d credentials from Jenkins", len(result.Credentials))
+	return result.Credentials, nil
+}
+
 // groovyEscape 转义 Groovy 字串中的单引号和特殊字符（脚本用单引号定界）
 func groovyEscape(s string) string {
 	r := strings.NewReplacer(
