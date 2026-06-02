@@ -133,21 +133,33 @@ func (s *DeployService) RetryTask(taskID uint) (*model.DeployTask, error) {
 		return nil, fmt.Errorf("只能重试失败的任务，当前状态: %s", task.Status)
 	}
 
-	task.RetryCount += 1
-	task.Status = "PENDING"
-	task.StartedAt = time.Time{}
-	task.FinishedAt = time.Time{}
-	task.ErrorMessage = ""
-	task.JenkinsBuildNumber = 0
-
-	if err := s.db.Save(&task).Error; err != nil {
-		return nil, fmt.Errorf("更新任务失败: %w", err)
+	// 使用 Updates(map) 而非 Save，确保零值字段（time.Time{}、0、"")被正确写入
+	result := s.db.Model(&model.DeployTask{}).Where("id = ? AND status = ?", taskID, "FAILED").Updates(map[string]interface{}{
+		"status":              "PENDING",
+		"retry_count":         gorm.Expr("retry_count + 1"),
+		"started_at":          time.Time{},
+		"finished_at":         time.Time{},
+		"error_message":       "",
+		"jenkins_build_number": 0,
+	})
+	if result.Error != nil {
+		return nil, fmt.Errorf("更新任务失败: %w", result.Error)
+	}
+	if result.RowsAffected == 0 {
+		return nil, fmt.Errorf("只能重试失败的任务")
 	}
 
-	if err := s.queueClient.EnqueueDeployTaskRetry(task.ID); err != nil {
+	// 入队失败时回滚状态，避免任务孤立在 PENDING 状态
+	if err := s.queueClient.EnqueueDeployTaskRetry(taskID); err != nil {
+		s.db.Model(&model.DeployTask{}).Where("id = ?", taskID).Updates(map[string]interface{}{
+			"status":        "FAILED",
+			"retry_count":   gorm.Expr("retry_count - 1"),
+		})
 		return nil, fmt.Errorf("重试入队失败: %w", err)
 	}
 
+	// 重新加载以获取更新后的值
+	s.db.First(&task, taskID)
 	return &task, nil
 }
 
