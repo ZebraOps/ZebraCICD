@@ -332,6 +332,34 @@ func getDeployTaskConsoleHandler(c *gin.Context, svc *service.DeployService) {
 }
 
 // RegisterDeployRoutes 注册部署相关路由
+// getTaskStagesHandler 返回任务的所有阶段历史记录
+// @Summary 获取任务阶段历史
+// @Description 获取指定部署任务的CICD流程各阶段执行详情
+// @Tags deploys
+// @Accept json
+// @Produce json
+// @Param id path int true "任务ID"
+// @Success 200 {object} types.Response
+// @Failure 400 {object} types.Response
+// @Failure 500 {object} types.Response
+// @Router /api/deploys/{id}/stages [get]
+func getTaskStagesHandler(c *gin.Context, svc *service.DeployService) {
+	idStr := c.Param("id")
+	id, err := strconv.ParseUint(idStr, 10, 64)
+	if err != nil {
+		types.Error(c, http.StatusBadRequest, "无效的任务ID")
+		return
+	}
+
+	stages, err := svc.GetTaskStages(uint(id))
+	if err != nil {
+		types.Error(c, http.StatusInternalServerError, "获取阶段历史失败: "+err.Error())
+		return
+	}
+
+	types.Success(c, stages)
+}
+
 func RegisterDeployRoutes(r *gin.Engine, svc *service.DeployService) {
 	g := r.Group("/api/deploys")
 	{
@@ -366,6 +394,11 @@ func RegisterDeployRoutes(r *gin.Engine, svc *service.DeployService) {
 
 		g.GET("/:id/console", func(c *gin.Context) {
 			getDeployTaskConsoleHandler(c, svc)
+		})
+
+		// 获取任务阶段历史
+		g.GET("/:id/stages", func(c *gin.Context) {
+			getTaskStagesHandler(c, svc)
 		})
 
 		g.DELETE("/:id", func(c *gin.Context) {

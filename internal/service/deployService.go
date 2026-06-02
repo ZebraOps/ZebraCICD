@@ -33,14 +33,15 @@ import (
 )
 
 type DeployService struct {
-	db          *gorm.DB
-	cfg         *config.Config
-	gitlab      *core.GitLabClient
-	harbor      *core.HarborClient
-	jenkins     *core.JenkinsClient
-	k8s         *core.K8sClient
-	queueClient *queue.Client
-	serverRepo  *handler.ServerRepository
+	db               *gorm.DB
+	cfg              *config.Config
+	gitlab           *core.GitLabClient
+	harbor           *core.HarborClient
+	jenkins          *core.JenkinsClient
+	k8s              *core.K8sClient
+	queueClient      *queue.Client
+	serverRepo       *handler.ServerRepository
+	stageHistoryRepo *handler.StageHistoryRepository
 }
 
 type JenkinsBuildResult struct {
@@ -83,20 +84,58 @@ func (s *DeployService) getK8sClient(clusterID uint) (*kubernetes.Clientset, err
 	)
 }
 
-func NewDeployService(db *gorm.DB, cfg *config.Config, queueClient *queue.Client, serverRepo *handler.ServerRepository) *DeployService {
+func NewDeployService(db *gorm.DB, cfg *config.Config, queueClient *queue.Client, serverRepo *handler.ServerRepository, stageHistoryRepo *handler.StageHistoryRepository) *DeployService {
 	gc := core.NewGitLabClient(cfg.GitLabURL, cfg.GitLabToken)
 	hc := core.NewHarborClient(cfg.HarborURL)
 	jc := core.NewJenkinsClient(cfg.JenkinsURL, cfg.JenkinsUser, cfg.JenkinsPass)
 
 	return &DeployService{
-		db:          db,
-		cfg:         cfg,
-		gitlab:      gc,
-		harbor:      hc,
-		jenkins:     jc,
-		queueClient: queueClient,
-		serverRepo:  serverRepo,
+		db:               db,
+		cfg:              cfg,
+		gitlab:           gc,
+		harbor:           hc,
+		jenkins:          jc,
+		queueClient:      queueClient,
+		serverRepo:       serverRepo,
+		stageHistoryRepo: stageHistoryRepo,
 	}
+}
+
+// startStage creates a StageHistory record with status=running and sets StartedAt.
+func (s *DeployService) startStage(taskID uint, stage string) error {
+	now := time.Now()
+	stageHistory := &model.StageHistory{
+		TaskID:    taskID,
+		Stage:     stage,
+		Status:    "running",
+		StartedAt: &now,
+	}
+	return s.stageHistoryRepo.Create(stageHistory)
+}
+
+// finishStage updates the StageHistory record to status=success/failed and sets FinishedAt.
+func (s *DeployService) finishStage(taskID uint, stage string, status string, errorMsg string) error {
+	now := time.Now()
+	stageHistory, err := s.stageHistoryRepo.GetByTaskIDAndStage(taskID, stage)
+	if err != nil {
+		return err
+	}
+	stageHistory.Status = status
+	stageHistory.FinishedAt = &now
+	if errorMsg != "" {
+		stageHistory.ErrorMessage = errorMsg
+	}
+	return s.stageHistoryRepo.Update(stageHistory)
+}
+
+// updateStageLogSummary updates the LogSummary field for the current running stage.
+func (s *DeployService) updateStageLogSummary(taskID uint, stage string, summary string) error {
+	stageHistory, err := s.stageHistoryRepo.GetByTaskIDAndStage(taskID, stage)
+	if err != nil {
+		return err
+	}
+	stageHistory.LogSummary = summary
+	return s.stageHistoryRepo.Update(stageHistory)
 }
 
 func (s *DeployService) CreateTask(t *model.DeployTask) error {
@@ -178,12 +217,18 @@ func (s *DeployService) ProcessDeploymentTask(ctx context.Context, taskID uint) 
 		return nil
 	}
 
+	// --- PENDING stage: record that the task has started processing ---
+	s.startStage(taskID, "PENDING")
+	s.finishStage(taskID, "PENDING", "success", "")
+
 	// 1. 开始构建阶段
+	s.startStage(taskID, "BUILDING")
 	s.updateTaskStatus(taskID, "BUILDING", "开始Jenkins构建流程", "")
 
 	// 2. 触发Jenkins构建
 	buildResult, jenkinsClient, err := s.triggerJenkinsBuild(&task)
 	if err != nil {
+		s.finishStage(taskID, "BUILDING", "failed", err.Error())
 		s.updateTaskStatus(taskID, "FAILED", fmt.Sprintf("Jenkins构建失败: %v", err), err.Error())
 		return err
 	}
@@ -194,22 +239,28 @@ func (s *DeployService) ProcessDeploymentTask(ctx context.Context, taskID uint) 
 	// 3. 等待构建完成（使用触发构建时的同一 Jenkins 客户端）
 	if !s.waitForJenkinsBuild(ctx, jenkinsClient, buildResult.JobName, buildResult.BuildNumber) {
 		errMsg := "Jenkins构建失败或超时"
+		s.finishStage(taskID, "BUILDING", "failed", errMsg)
 		s.updateTaskStatus(taskID, "FAILED", errMsg, errMsg)
 		return fmt.Errorf("jenkins build failed or timed out: job=%s build=%d", buildResult.JobName, buildResult.BuildNumber)
 	}
+	s.finishStage(taskID, "BUILDING", "success", "")
 
 	// 4. 开始推送阶段
+	s.startStage(taskID, "PUSHING")
 	s.updateTaskStatus(taskID, "PUSHING", "开始推送镜像到Harbor", "")
 	log.S().Infof("pushing image: project=%s name=%s tag=%s", task.HarborProject, task.ImageName, task.ImageTag)
 
 	// 5. 验证镜像推送
 	if !s.verifyImageInHarbor(task.HarborProject, task.ImageName, task.ImageTag) {
 		errMsg := "Harbor镜像验证失败"
+		s.finishStage(taskID, "PUSHING", "failed", errMsg)
 		s.updateTaskStatus(taskID, "FAILED", errMsg, errMsg)
 		return fmt.Errorf("harbor image not found: %s/%s:%s", task.HarborProject, task.ImageName, task.ImageTag)
 	}
+	s.finishStage(taskID, "PUSHING", "success", "")
 
 	// 6. 开始部署阶段 — 根据部署目标分支
+	s.startStage(taskID, "DEPLOYING")
 	deployTarget := task.DeployTarget
 	if deployTarget == "" {
 		deployTarget = task.DeployType // 兼容旧数据
@@ -218,26 +269,31 @@ func (s *DeployService) ProcessDeploymentTask(ctx context.Context, taskID uint) 
 	case "docker":
 		s.updateTaskStatus(taskID, "DEPLOYING", "开始部署到Linux主机(Docker)", "")
 		if err := s.deployToDocker(&task); err != nil {
+			s.finishStage(taskID, "DEPLOYING", "failed", err.Error())
 			s.updateTaskStatus(taskID, "FAILED", fmt.Sprintf("Docker部署失败: %v", err), err.Error())
 			return err
 		}
 	case "k8s":
 		s.updateTaskStatus(taskID, "DEPLOYING", "开始部署到K8s集群", "")
 		if err := s.deployToK8s(&task); err != nil {
+			s.finishStage(taskID, "DEPLOYING", "failed", err.Error())
 			s.updateTaskStatus(taskID, "FAILED", fmt.Sprintf("K8s部署失败: %v", err), err.Error())
 			return err
 		}
 	case "linux":
 		s.updateTaskStatus(taskID, "DEPLOYING", "开始部署到Linux主机(文件提取+Nginx)", "")
 		if err := s.deployToLinux(&task); err != nil {
+			s.finishStage(taskID, "DEPLOYING", "failed", err.Error())
 			s.updateTaskStatus(taskID, "FAILED", fmt.Sprintf("Linux部署失败: %v", err), err.Error())
 			return err
 		}
 	default:
 		errMsg := fmt.Sprintf("未知的部署目标: %s", deployTarget)
+		s.finishStage(taskID, "DEPLOYING", "failed", errMsg)
 		s.updateTaskStatus(taskID, "FAILED", errMsg, errMsg)
 		return fmt.Errorf("unknown deploy target: %s", deployTarget)
 	}
+	s.finishStage(taskID, "DEPLOYING", "success", "")
 
 	// 8. 部署成功
 	s.updateTaskStatus(taskID, "SUCCESS", "部署成功完成", "")
@@ -1188,6 +1244,11 @@ func (s *DeployService) GetTask(id uint) (*model.DeployTask, error) {
 		return nil, err
 	}
 	return &t, nil
+}
+
+// GetTaskStages returns all StageHistory records for a deploy task.
+func (s *DeployService) GetTaskStages(taskID uint) ([]model.StageHistory, error) {
+	return s.stageHistoryRepo.GetByTaskID(taskID)
 }
 
 // ListTasks 分页查询部署任务列表

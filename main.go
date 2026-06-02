@@ -148,6 +148,7 @@ func main() {
 		&model.GitPlatform{},
 		&model.JenkinsPlatform{},
 		&model.JenkinsCredential{},
+		&model.StageHistory{},
 	); err != nil {
 		log.S().Fatalf("auto migrate failed: %v", err)
 	}
@@ -171,7 +172,8 @@ func main() {
 	// Repositories and services
 	gitlabClient := core.NewGitLabClient(cfg.GitLabURL, cfg.GitLabToken)
 	serverRepo := handler.NewServerRepository(db)
-	deploySvc := service.NewDeployService(db, cfg, queueClient, serverRepo)
+	stageHistoryRepo := handler.NewStageHistoryRepository(db)
+	deploySvc := service.NewDeployService(db, cfg, queueClient, serverRepo, stageHistoryRepo)
 	repoRepo := handler.NewRepoRepository(db)
 	repoSvc := service.NewRepoService(repoRepo, gitlabClient, cfg.GitLabURL, db)
 
