@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -315,6 +316,10 @@ func getDeployTaskConsoleHandler(c *gin.Context, svc *service.DeployService) {
 
 	output, err := svc.GetTaskConsole(uint(id))
 	if err != nil {
+		if errors.Is(err, service.ErrNoJenkinsBuildInfo) {
+			types.Success(c, gin.H{"output": ""})
+			return
+		}
 		types.Error(c, http.StatusInternalServerError, err.Error())
 		return
 	}

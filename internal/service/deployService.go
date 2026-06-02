@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"encoding/json"
+	stderrors "errors"
 	"fmt"
 	"os"
 	"strings"
@@ -47,6 +48,8 @@ type JenkinsBuildResult struct {
 	BuildNumber int
 	QueueID     int
 }
+
+var ErrNoJenkinsBuildInfo = stderrors.New("task has no Jenkins build info")
 
 // int32Ptr 返回指向int32值的指针
 func int32Ptr(i int32) *int32 {
@@ -135,11 +138,11 @@ func (s *DeployService) RetryTask(taskID uint) (*model.DeployTask, error) {
 
 	// 使用 Updates(map) 而非 Save，确保零值字段（time.Time{}、0、"")被正确写入
 	result := s.db.Model(&model.DeployTask{}).Where("id = ? AND status = ?", taskID, "FAILED").Updates(map[string]interface{}{
-		"status":              "PENDING",
-		"retry_count":         gorm.Expr("retry_count + 1"),
-		"started_at":          time.Time{},
-		"finished_at":         time.Time{},
-		"error_message":       "",
+		"status":               "PENDING",
+		"retry_count":          gorm.Expr("retry_count + 1"),
+		"started_at":           time.Time{},
+		"finished_at":          time.Time{},
+		"error_message":        "",
 		"jenkins_build_number": 0,
 	})
 	if result.Error != nil {
@@ -152,8 +155,8 @@ func (s *DeployService) RetryTask(taskID uint) (*model.DeployTask, error) {
 	// 入队失败时回滚状态，避免任务孤立在 PENDING 状态
 	if err := s.queueClient.EnqueueDeployTaskRetry(taskID); err != nil {
 		s.db.Model(&model.DeployTask{}).Where("id = ?", taskID).Updates(map[string]interface{}{
-			"status":        "FAILED",
-			"retry_count":   gorm.Expr("retry_count - 1"),
+			"status":      "FAILED",
+			"retry_count": gorm.Expr("retry_count - 1"),
 		})
 		return nil, fmt.Errorf("重试入队失败: %w", err)
 	}
@@ -943,8 +946,6 @@ func (s *DeployService) safeExtractValue(obj map[string]interface{}, key string)
 			return fmt.Sprintf("%g", float64(v))
 		case bool:
 			return fmt.Sprintf("%t", v)
-		case nil:
-			return ""
 		default:
 			return fmt.Sprintf("%v", v)
 		}
@@ -1302,7 +1303,7 @@ func (s *DeployService) GetTaskConsole(taskID uint) (string, error) {
 	}
 
 	if task.JenkinsJobName == "" || task.JenkinsBuildNumber <= 0 {
-		return "", fmt.Errorf("task %d has no Jenkins build info", taskID)
+		return "", fmt.Errorf("task %d: %w", taskID, ErrNoJenkinsBuildInfo)
 	}
 
 	return s.jenkins.GetConsoleOutput(task.JenkinsJobName, task.JenkinsBuildNumber)
