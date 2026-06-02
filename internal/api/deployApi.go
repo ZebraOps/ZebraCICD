@@ -1,6 +1,7 @@
 package api
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -342,6 +343,14 @@ func streamDeployTaskConsoleHandler(c *gin.Context, svc *service.DeployService) 
 	}
 	defer conn.Close()
 
+	// WebSocket 消息结构（使用 json.Marshal 确保正确编码）
+	type wsMessage struct {
+		Output   string `json:"output,omitempty"`
+		Status   string `json:"status"`
+		Finished bool   `json:"finished,omitempty"`
+		Error    string `json:"error,omitempty"`
+	}
+
 	// 定期轮询 Jenkins 日志并推送到 WebSocket 客户端
 	var lastOutput string
 	ticker := time.NewTicker(2 * time.Second)
@@ -353,21 +362,32 @@ func streamDeployTaskConsoleHandler(c *gin.Context, svc *service.DeployService) 
 			// 获取任务详情以检查状态
 			task, err := svc.GetTask(uint(id))
 			if err != nil {
-				_ = conn.WriteMessage(websocket.TextMessage, []byte(`{"error":"task not found"}`))
+				msg, _ := json.Marshal(wsMessage{Error: "task not found"})
+				_ = conn.WriteMessage(websocket.TextMessage, msg)
 				return
 			}
 
 			// 获取控制台输出
 			output, err := svc.GetTaskConsole(uint(id))
 			if err != nil {
-				// Jenkins 构建可能尚未开始，静默跳过本次推送
+				// Jenkins 构建可能尚未开始或平台配置问题，发送错误信息而非静默跳过
+				msg, _ := json.Marshal(wsMessage{Status: task.Status, Error: err.Error()})
+				_ = conn.WriteMessage(websocket.TextMessage, msg)
+				// 任务终态时仍需关闭连接
+				if task.Status == "SUCCESS" || task.Status == "FAILED" {
+					closeMsg, _ := json.Marshal(wsMessage{Status: task.Status, Finished: true, Error: err.Error()})
+					_ = conn.WriteMessage(websocket.TextMessage, closeMsg)
+					_ = conn.WriteMessage(websocket.CloseMessage,
+						websocket.FormatCloseMessage(websocket.CloseNormalClosure, "task finished"))
+					return
+				}
 				continue
 			}
 
 			// 仅在内容有变化时推送，避免重复发送
 			if output != lastOutput {
-				msg := fmt.Sprintf(`{"output":"%s","status":"%s"}`, output, task.Status)
-				if err := conn.WriteMessage(websocket.TextMessage, []byte(msg)); err != nil {
+				msg, _ := json.Marshal(wsMessage{Output: output, Status: task.Status})
+				if err := conn.WriteMessage(websocket.TextMessage, msg); err != nil {
 					return // 客户端已断开
 				}
 				lastOutput = output
@@ -375,8 +395,8 @@ func streamDeployTaskConsoleHandler(c *gin.Context, svc *service.DeployService) 
 
 			// 任务达到终态时发送关闭消息并退出
 			if task.Status == "SUCCESS" || task.Status == "FAILED" {
-				closeMsg := fmt.Sprintf(`{"output":"%s","status":"%s","finished":true}`, output, task.Status)
-				_ = conn.WriteMessage(websocket.TextMessage, []byte(closeMsg))
+				closeMsg, _ := json.Marshal(wsMessage{Output: output, Status: task.Status, Finished: true})
+				_ = conn.WriteMessage(websocket.TextMessage, closeMsg)
 				_ = conn.WriteMessage(websocket.CloseMessage,
 					websocket.FormatCloseMessage(websocket.CloseNormalClosure, "task finished"))
 				return
