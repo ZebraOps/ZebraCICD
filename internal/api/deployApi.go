@@ -1,19 +1,16 @@
 package api
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/ZebraOps/ZebraCICD/internal/model"
 	"github.com/ZebraOps/ZebraCICD/internal/service"
 	"github.com/ZebraOps/ZebraCICD/internal/types"
 	"github.com/gin-gonic/gin"
-	"github.com/gorilla/websocket"
 )
 
 // internal/api/deployApi.go 增强版
@@ -314,104 +311,24 @@ func getDeployTaskConsoleHandler(c *gin.Context, svc *service.DeployService) {
 		return
 	}
 
+	task, err := svc.GetTask(uint(id))
+	if err != nil {
+		types.Error(c, http.StatusNotFound, "task not found")
+		return
+	}
+
 	output, err := svc.GetTaskConsole(uint(id))
 	if err != nil {
 		if errors.Is(err, service.ErrNoJenkinsBuildInfo) {
-			types.Success(c, gin.H{"output": ""})
+			types.Success(c, gin.H{"output": "", "status": task.Status})
 			return
 		}
-		types.Error(c, http.StatusInternalServerError, err.Error())
+		// 控制台输出获取失败但仍返回状态信息
+		types.Success(c, gin.H{"output": "", "status": task.Status, "error": err.Error()})
 		return
 	}
 
-	types.Success(c, gin.H{"output": output})
-}
-
-// streamDeployTaskConsoleHandler WebSocket 实时推送 Jenkins 构建日志
-// @Summary 流式获取任务控制台日志
-// @Description 通过 WebSocket 实时推送部署任务的 Jenkins 构建日志
-// @Tags deploys
-// @Param id path int true "任务ID"
-// @Router /api/deploys/{id}/console/stream [get]
-func streamDeployTaskConsoleHandler(c *gin.Context, svc *service.DeployService) {
-	idStr := c.Param("id")
-	id, err := strconv.Atoi(idStr)
-	if err != nil {
-		types.Error(c, http.StatusBadRequest, "invalid id format")
-		return
-	}
-
-	// 升级为 WebSocket
-	conn, err := upgrader.Upgrade(c.Writer, c.Request, nil)
-	if err != nil {
-		return
-	}
-	defer conn.Close()
-
-	// WebSocket 消息结构（使用 json.Marshal 确保正确编码）
-	type wsMessage struct {
-		Output   string `json:"output,omitempty"`
-		Status   string `json:"status"`
-		Finished bool   `json:"finished,omitempty"`
-		Error    string `json:"error,omitempty"`
-	}
-
-	// 定期轮询 Jenkins 日志并推送到 WebSocket 客户端
-	var lastOutput string
-	ticker := time.NewTicker(2 * time.Second)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ticker.C:
-			// 获取任务详情以检查状态
-			task, err := svc.GetTask(uint(id))
-			if err != nil {
-				msg, _ := json.Marshal(wsMessage{Error: "task not found"})
-				_ = conn.WriteMessage(websocket.TextMessage, msg)
-				return
-			}
-
-			// 获取控制台输出
-			output, err := svc.GetTaskConsole(uint(id))
-			if err != nil {
-				// Jenkins 构建可能尚未开始或平台配置问题，发送错误信息而非静默跳过
-				msg, _ := json.Marshal(wsMessage{Status: task.Status, Error: err.Error()})
-				_ = conn.WriteMessage(websocket.TextMessage, msg)
-				// 任务终态时仍需关闭连接
-				if task.Status == "SUCCESS" || task.Status == "FAILED" {
-					closeMsg, _ := json.Marshal(wsMessage{Status: task.Status, Finished: true, Error: err.Error()})
-					_ = conn.WriteMessage(websocket.TextMessage, closeMsg)
-					_ = conn.WriteMessage(websocket.CloseMessage,
-						websocket.FormatCloseMessage(websocket.CloseNormalClosure, "task finished"))
-					return
-				}
-				continue
-			}
-
-			// 仅在内容有变化时推送，避免重复发送
-			if output != lastOutput {
-				msg, _ := json.Marshal(wsMessage{Output: output, Status: task.Status})
-				if err := conn.WriteMessage(websocket.TextMessage, msg); err != nil {
-					return // 客户端已断开
-				}
-				lastOutput = output
-			}
-
-			// 任务达到终态时发送关闭消息并退出
-			if task.Status == "SUCCESS" || task.Status == "FAILED" {
-				closeMsg, _ := json.Marshal(wsMessage{Output: output, Status: task.Status, Finished: true})
-				_ = conn.WriteMessage(websocket.TextMessage, closeMsg)
-				_ = conn.WriteMessage(websocket.CloseMessage,
-					websocket.FormatCloseMessage(websocket.CloseNormalClosure, "task finished"))
-				return
-			}
-
-		case <-c.Request.Context().Done():
-			// 请求上下文取消（客户端断开或超时）
-			return
-		}
-	}
+	types.Success(c, gin.H{"output": output, "status": task.Status})
 }
 
 // RegisterDeployRoutes 注册部署相关路由
@@ -449,11 +366,6 @@ func RegisterDeployRoutes(r *gin.Engine, svc *service.DeployService) {
 
 		g.GET("/:id/console", func(c *gin.Context) {
 			getDeployTaskConsoleHandler(c, svc)
-		})
-
-		// WebSocket 实时日志流
-		g.GET("/:id/console/stream", func(c *gin.Context) {
-			streamDeployTaskConsoleHandler(c, svc)
 		})
 
 		g.DELETE("/:id", func(c *gin.Context) {
