@@ -122,6 +122,35 @@ func (s *DeployService) CreateTask(t *model.DeployTask) error {
 	return s.queueClient.EnqueueDeployTask(t.ID)
 }
 
+// RetryTask 重试一个失败的部署任务：将状态重置为 PENDING，清空执行字段，递增 retry_count，重新入队。
+func (s *DeployService) RetryTask(taskID uint) (*model.DeployTask, error) {
+	var task model.DeployTask
+	if err := s.db.First(&task, taskID).Error; err != nil {
+		return nil, fmt.Errorf("任务不存在: %w", err)
+	}
+
+	if task.Status != "FAILED" {
+		return nil, fmt.Errorf("只能重试失败的任务，当前状态: %s", task.Status)
+	}
+
+	task.RetryCount += 1
+	task.Status = "PENDING"
+	task.StartedAt = time.Time{}
+	task.FinishedAt = time.Time{}
+	task.ErrorMessage = ""
+	task.JenkinsBuildNumber = 0
+
+	if err := s.db.Save(&task).Error; err != nil {
+		return nil, fmt.Errorf("更新任务失败: %w", err)
+	}
+
+	if err := s.queueClient.EnqueueDeployTaskRetry(task.ID); err != nil {
+		return nil, fmt.Errorf("重试入队失败: %w", err)
+	}
+
+	return &task, nil
+}
+
 // ProcessDeploymentTask 由 Asynq worker 调用，执行完整的 Jenkins→Harbor→K8s 流程。
 func (s *DeployService) ProcessDeploymentTask(ctx context.Context, taskID uint) error {
 	var task model.DeployTask
