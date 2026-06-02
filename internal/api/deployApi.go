@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/ZebraOps/ZebraCICD/internal/model"
@@ -231,6 +232,37 @@ func batchDeleteDeployTasksHandler(c *gin.Context, svc *service.DeployService) {
 	types.Success(c, gin.H{"message": fmt.Sprintf("%d tasks deleted", len(req.IDs))})
 }
 
+// retryDeployTaskHandler 重试失败的部署任务
+// @Summary 重试失败的部署任务
+// @Description 将失败的任务重置为PENDING状态并重新入队执行
+// @Tags deploys
+// @Produce json
+// @Param id path int true "任务ID"
+// @Success 200 {object} types.Response
+// @Failure 400 {object} types.Response
+// @Failure 500 {object} types.Response
+// @Router /api/deploys/{id}/retry [post]
+func retryDeployTaskHandler(c *gin.Context, svc *service.DeployService) {
+	idStr := c.Param("id")
+	id, err := strconv.Atoi(idStr)
+	if err != nil {
+		types.Error(c, http.StatusBadRequest, "invalid id format")
+		return
+	}
+
+	task, err := svc.RetryTask(uint(id))
+	if err != nil {
+		if strings.Contains(err.Error(), "只能重试失败的任务") || strings.Contains(err.Error(), "任务不存在") {
+			types.Error(c, http.StatusBadRequest, err.Error())
+		} else {
+			types.Error(c, http.StatusInternalServerError, err.Error())
+		}
+		return
+	}
+
+	types.Success(c, gin.H{"task_id": task.ID, "retry_count": task.RetryCount})
+}
+
 // getAvailableTemplatesHandler 获取创建任务时可选的构建/部署模板
 // @Summary 获取创建任务时可选的构建/部署模板
 // @Description 根据应用ID获取可用的构建模板和部署模板列表
@@ -379,6 +411,11 @@ func RegisterDeployRoutes(r *gin.Engine, svc *service.DeployService) {
 		// batch delete
 		g.POST("/batch-delete", func(c *gin.Context) {
 			batchDeleteDeployTasksHandler(c, svc)
+		})
+
+		// retry failed deploy task
+		g.POST("/:id/retry", func(c *gin.Context) {
+			retryDeployTaskHandler(c, svc)
 		})
 
 		g.GET("/:id", func(c *gin.Context) {
