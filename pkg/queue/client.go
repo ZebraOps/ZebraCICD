@@ -50,3 +50,22 @@ func (c *Client) EnqueueDeployTask(taskID uint) error {
 	_, err = c.client.Enqueue(task)
 	return err
 }
+
+// EnqueueDeployTaskRetry 将重试的部署任务入队。
+// 使用带时间戳的 TaskID 避免与原始 deploy:{id} 任务冲突。
+func (c *Client) EnqueueDeployTaskRetry(taskID uint) error {
+	payload, err := json.Marshal(DeployTaskPayload{TaskID: taskID})
+	if err != nil {
+		return fmt.Errorf("marshal deploy payload: %w", err)
+	}
+	task := asynq.NewTask(
+		TypeDeployTask,
+		payload,
+		asynq.TaskID(fmt.Sprintf("deploy:%d:retry-%d", taskID, time.Now().Unix())),
+		asynq.MaxRetry(3),
+		asynq.Timeout(35*time.Minute),
+		asynq.Queue("deploy"),
+	)
+	_, err = c.client.Enqueue(task)
+	return err
+}
