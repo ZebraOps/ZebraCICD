@@ -84,6 +84,8 @@ func main() {
 				"jenkins_url":      cfg.JenkinsURL,
 				"jenkins_password": cfg.JenkinsPass,
 				"harbor_url":       cfg.HarborURL,
+				"harbor_username":  cfg.HarborUser,
+				"harbor_password":  cfg.HarborPass,
 				"redis_addr":       cfg.RedisAddr,
 				"redis_password":   cfg.RedisPassword,
 			}
@@ -97,6 +99,8 @@ func main() {
 			cfg.JenkinsURL = configMap["jenkins_url"]
 			cfg.JenkinsPass = configMap["jenkins_password"]
 			cfg.HarborURL = configMap["harbor_url"]
+			cfg.HarborUser = configMap["harbor_username"]
+			cfg.HarborPass = configMap["harbor_password"]
 			cfg.RedisAddr = configMap["redis_addr"]
 			cfg.RedisPassword = configMap["redis_password"]
 

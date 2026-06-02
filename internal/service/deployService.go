@@ -86,7 +86,7 @@ func (s *DeployService) getK8sClient(clusterID uint) (*kubernetes.Clientset, err
 
 func NewDeployService(db *gorm.DB, cfg *config.Config, queueClient *queue.Client, serverRepo *handler.ServerRepository, stageHistoryRepo *handler.StageHistoryRepository) *DeployService {
 	gc := core.NewGitLabClient(cfg.GitLabURL, cfg.GitLabToken)
-	hc := core.NewHarborClient(cfg.HarborURL)
+	hc := core.NewHarborClient(cfg.HarborURL, cfg.HarborUser, cfg.HarborPass)
 	jc := core.NewJenkinsClient(cfg.JenkinsURL, cfg.JenkinsUser, cfg.JenkinsPass)
 
 	return &DeployService{
@@ -561,21 +561,9 @@ func (s *DeployService) waitForJenkinsBuild(ctx context.Context, jenkinsClient *
 	}
 }
 
-// verifyImageInHarbor 验证Harbor中的镜像
+// verifyImageInHarbor 验证Harbor/ACR中的镜像是否存在
 func (s *DeployService) verifyImageInHarbor(project, imageName, tag string) bool {
-	// 查询Harbor确认镜像已推送
-	tags, err := s.harbor.GetImageTags(project, imageName)
-	if err != nil {
-		log.S().Infof("Error getting image tags from Harbor: %v", err)
-		return false
-	}
-
-	for _, harborTag := range tags {
-		if harborTag.Name == tag {
-			return true
-		}
-	}
-	return false
+	return s.harbor.VerifyImageExists(project, imageName, tag)
 }
 
 // deployToDocker 通过SSH部署docker-compose到Linux主机

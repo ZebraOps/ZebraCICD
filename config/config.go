@@ -14,6 +14,8 @@ type Config struct {
 	GitLabToken  string
 	GitLabURL    string
 	HarborURL    string
+	HarborUser   string
+	HarborPass   string
 	WorkerPeriod time.Duration
 	SecretsPath  string
 	Logging      types.LoggingConfig
@@ -101,6 +103,8 @@ func Load() *Config {
 		GitLabToken:  viper.GetString("app.GitLabToken"),
 		GitLabURL:    viper.GetString("app.GitLabURL"),
 		HarborURL:    viper.GetString("app.HarborURL"),
+		HarborUser:   viper.GetString("harbor.username"),
+		HarborPass:   viper.GetString("harbor.password"),
 		JenkinsURL:   viper.GetString("app.JenkinsURL"),
 		JenkinsUser:  viper.GetString("app.JenkinsUser"),
 		JenkinsPass:  viper.GetString("app.JenkinsPass"),
