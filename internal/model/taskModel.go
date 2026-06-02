@@ -37,4 +37,5 @@ type DeployTask struct {
 	// Jenkins 构建信息
 	JenkinsBuildNumber int    `gorm:"comment:Jenkins构建编号" json:"jenkins_build_number,omitempty"`
 	ErrorMessage       string `gorm:"type:text;comment:错误信息" json:"error_message,omitempty"`
+	RetryCount         int    `gorm:"default:0;comment:重试次数" json:"retry_count"`
 }
