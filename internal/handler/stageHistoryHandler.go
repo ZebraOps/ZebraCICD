@@ -31,6 +31,20 @@ func (r *StageHistoryRepository) GetByTaskID(taskID uint) ([]model.StageHistory,
 	return stages, err
 }
 
+// GetByTaskIDAndRetryCount returns StageHistory records for a specific task and retry round.
+func (r *StageHistoryRepository) GetByTaskIDAndRetryCount(taskID uint, retryCount int) ([]model.StageHistory, error) {
+	var stages []model.StageHistory
+	err := r.db.Where("task_id = ? AND retry_count = ?", taskID, retryCount).Order("id ASC").Find(&stages).Error
+	return stages, err
+}
+
+// GetLatestRetryCount returns the highest retry_count for a given task's stage history.
+func (r *StageHistoryRepository) GetLatestRetryCount(taskID uint) (int, error) {
+	var maxRetry int
+	err := r.db.Model(&model.StageHistory{}).Where("task_id = ?", taskID).Select("COALESCE(MAX(retry_count), 0)").Scan(&maxRetry).Error
+	return maxRetry, err
+}
+
 // GetByTaskIDAndStage returns the StageHistory for a specific task+stage combination.
 func (r *StageHistoryRepository) GetByTaskIDAndStage(taskID uint, stage string) (*model.StageHistory, error) {
 	var stageHistory model.StageHistory

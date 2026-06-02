@@ -3,7 +3,7 @@ app:
   DatabaseURL: "postgres://postgres:postgres123@192.168.192.87:5432/postgres?sslmode=disable"
   GitLabToken: "xnfDCyU84vye7hUpsXL3"
   GitLabURL: "https://git.zmcms.cn"
-  HarborURL: "registry.cn-shanghai.aliyuncs.com"
+  RegistryURL: "registry.cn-shanghai.aliyuncs.com"
   JenkinsURL: "http://192.168.192.87:8081/"
   JenkinsUser: "jenkins"
   JenkinsPass: "11b897a827d20d9984eeda5f4f2f1430c0"

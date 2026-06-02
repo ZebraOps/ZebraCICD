@@ -13,9 +13,9 @@ type Config struct {
 	Port         string
 	GitLabToken  string
 	GitLabURL    string
-	HarborURL    string
-	HarborUser   string
-	HarborPass   string
+	RegistryURL  string
+	RegistryUser string
+	RegistryPass string
 	WorkerPeriod time.Duration
 	SecretsPath  string
 	Logging      types.LoggingConfig
@@ -67,7 +67,7 @@ func Load() *Config {
 	// 默认值设置
 	viper.SetDefault("app.Port", "4123")
 	viper.SetDefault("app.GitLabURL", "https://gitlab.com")
-	viper.SetDefault("app.HarborURL", "registry.cn-shanghai.aliyuncs.com")
+	viper.SetDefault("app.RegistryURL", "registry.cn-shanghai.aliyuncs.com")
 
 	// 注意：YAML配置中使用的是"5m"这样的字符串格式，需要特殊处理
 	workerPeriodStr := viper.GetString("app.WorkerPeriod")
@@ -102,9 +102,9 @@ func Load() *Config {
 		Port:         viper.GetString("app.Port"),
 		GitLabToken:  viper.GetString("app.GitLabToken"),
 		GitLabURL:    viper.GetString("app.GitLabURL"),
-		HarborURL:    viper.GetString("app.HarborURL"),
-		HarborUser:   viper.GetString("harbor.username"),
-		HarborPass:   viper.GetString("harbor.password"),
+		RegistryURL:  viper.GetString("app.RegistryURL"),
+		RegistryUser: viper.GetString("registry.username"),
+		RegistryPass: viper.GetString("registry.password"),
 		JenkinsURL:   viper.GetString("app.JenkinsURL"),
 		JenkinsUser:  viper.GetString("app.JenkinsUser"),
 		JenkinsPass:  viper.GetString("app.JenkinsPass"),

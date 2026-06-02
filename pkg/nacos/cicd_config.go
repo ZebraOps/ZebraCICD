@@ -28,11 +28,11 @@ type CICDConfig struct {
 		Timeout  string `yaml:"timeout"`
 	} `yaml:"jenkins"`
 	
-	Harbor struct {
+	Registry struct {
 		URL      string `yaml:"url"`
 		Username string `yaml:"username"`
 		Password string `yaml:"password"`
-	} `yaml:"harbor"`
+	} `yaml:"registry"`
 	
 	Kubernetes struct {
 		Enabled bool `yaml:"enabled"`
@@ -154,11 +154,11 @@ func (l *CICDConfigLoader) LoadJenkinsPassword(defaultValue string) string {
 	return defaultValue
 }
 
-// LoadHarborURL 加载 Harbor URL
-func (l *CICDConfigLoader) LoadHarborURL(defaultValue string) string {
-	if l.config != nil && l.config.Harbor.URL != "" {
-		l.logger.Info("✓ 从 Nacos YAML 加载 Harbor URL 成功")
-		return l.config.Harbor.URL
+// LoadRegistryURL 加载 Registry URL
+func (l *CICDConfigLoader) LoadRegistryURL(defaultValue string) string {
+	if l.config != nil && l.config.Registry.URL != "" {
+		l.logger.Info("✓ 从 Nacos YAML 加载 Registry URL 成功")
+		return l.config.Registry.URL
 	}
 	return defaultValue
 }
@@ -192,7 +192,7 @@ func (l *CICDConfigLoader) LoadAllConfigs(cfg map[string]string) {
 		{"gitlab_url", cfg["gitlab_url"], l.LoadGitLabURL},
 		{"jenkins_url", cfg["jenkins_url"], l.LoadJenkinsURL},
 		{"jenkins_password", cfg["jenkins_password"], l.LoadJenkinsPassword},
-		{"harbor_url", cfg["harbor_url"], l.LoadHarborURL},
+		{"registry_url", cfg["registry_url"], l.LoadRegistryURL},
 		{"redis_addr", cfg["redis_addr"], l.LoadRedisAddr},
 		{"redis_password", cfg["redis_password"], l.LoadRedisPassword},
 	}

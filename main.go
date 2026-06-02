@@ -83,9 +83,9 @@ func main() {
 				"gitlab_url":       cfg.GitLabURL,
 				"jenkins_url":      cfg.JenkinsURL,
 				"jenkins_password": cfg.JenkinsPass,
-				"harbor_url":       cfg.HarborURL,
-				"harbor_username":  cfg.HarborUser,
-				"harbor_password":  cfg.HarborPass,
+				"registry_url":      cfg.RegistryURL,
+				"registry_username": cfg.RegistryUser,
+				"registry_password": cfg.RegistryPass,
 				"redis_addr":       cfg.RedisAddr,
 				"redis_password":   cfg.RedisPassword,
 			}
@@ -98,9 +98,9 @@ func main() {
 			cfg.GitLabURL = configMap["gitlab_url"]
 			cfg.JenkinsURL = configMap["jenkins_url"]
 			cfg.JenkinsPass = configMap["jenkins_password"]
-			cfg.HarborURL = configMap["harbor_url"]
-			cfg.HarborUser = configMap["harbor_username"]
-			cfg.HarborPass = configMap["harbor_password"]
+			cfg.RegistryURL = configMap["registry_url"]
+			cfg.RegistryUser = configMap["registry_username"]
+			cfg.RegistryPass = configMap["registry_password"]
 			cfg.RedisAddr = configMap["redis_addr"]
 			cfg.RedisPassword = configMap["redis_password"]
 
@@ -114,7 +114,7 @@ func main() {
 		zap.String("port", cfg.Port),
 		zap.String("gitlabURL", cfg.GitLabURL),
 		zap.String("jenkinsURL", cfg.JenkinsURL),
-		zap.String("harborURL", cfg.HarborURL),
+		zap.String("registryURL", cfg.RegistryURL),
 	)
 
 	// 初始化日志系统
@@ -167,6 +167,24 @@ func main() {
 		Where("deploy_target = '' OR deploy_target IS NULL").
 		Update("deploy_target", gorm.Expr("deploy_type")).Error; err != nil {
 		log.S().Warnf("backfill deploy_tasks.deploy_target: %v", err)
+	}
+
+	// 数据迁移：harbor_project → registry_project（列重命名）
+	if db.Migrator().HasColumn(&model.DeployTask{}, "harbor_project") {
+		if !db.Migrator().HasColumn(&model.DeployTask{}, "registry_project") {
+			log.S().Info("Migrating deploy_tasks: renaming harbor_project to registry_project")
+			if err := db.Migrator().RenameColumn(&model.DeployTask{}, "harbor_project", "registry_project"); err != nil {
+				log.S().Warnf("rename column harbor_project → registry_project: %v", err)
+			}
+		}
+	}
+
+	// 数据回填：为旧的 StageHistory 记录设置 retry_count=0（所有旧记录都是首次执行）
+	if err := db.Model(&model.StageHistory{}).
+		Where("retry_count = 0 OR retry_count IS NULL").
+		Where("retry_count IS NULL").
+		Update("retry_count", 0).Error; err != nil {
+		log.S().Warnf("backfill stage_history.retry_count: %v", err)
 	}
 
 	// 初始化 Asynq 队列客户端

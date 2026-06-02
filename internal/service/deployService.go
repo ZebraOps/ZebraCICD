@@ -36,7 +36,7 @@ type DeployService struct {
 	db               *gorm.DB
 	cfg              *config.Config
 	gitlab           *core.GitLabClient
-	harbor           *core.HarborClient
+	registry         core.RegistryClient // 动态镜像仓库客户端
 	jenkins          *core.JenkinsClient
 	k8s              *core.K8sClient
 	queueClient      *queue.Client
@@ -86,14 +86,14 @@ func (s *DeployService) getK8sClient(clusterID uint) (*kubernetes.Clientset, err
 
 func NewDeployService(db *gorm.DB, cfg *config.Config, queueClient *queue.Client, serverRepo *handler.ServerRepository, stageHistoryRepo *handler.StageHistoryRepository) *DeployService {
 	gc := core.NewGitLabClient(cfg.GitLabURL, cfg.GitLabToken)
-	hc := core.NewHarborClient(cfg.HarborURL, cfg.HarborUser, cfg.HarborPass)
+	rc := core.NewV2RegistryAdapter(cfg.RegistryURL, cfg.RegistryUser, cfg.RegistryPass)
 	jc := core.NewJenkinsClient(cfg.JenkinsURL, cfg.JenkinsUser, cfg.JenkinsPass)
 
 	return &DeployService{
 		db:               db,
 		cfg:              cfg,
 		gitlab:           gc,
-		harbor:           hc,
+		registry:         rc,
 		jenkins:          jc,
 		queueClient:      queueClient,
 		serverRepo:       serverRepo,
@@ -102,13 +102,14 @@ func NewDeployService(db *gorm.DB, cfg *config.Config, queueClient *queue.Client
 }
 
 // startStage creates a StageHistory record with status=running and sets StartedAt.
-func (s *DeployService) startStage(taskID uint, stage string) error {
+func (s *DeployService) startStage(taskID uint, stage string, retryCount int) error {
 	now := time.Now()
 	stageHistory := &model.StageHistory{
-		TaskID:    taskID,
-		Stage:     stage,
-		Status:    "running",
-		StartedAt: &now,
+		TaskID:     taskID,
+		Stage:      stage,
+		Status:     "running",
+		RetryCount: retryCount,
+		StartedAt:  &now,
 	}
 	return s.stageHistoryRepo.Create(stageHistory)
 }
@@ -164,7 +165,8 @@ func (s *DeployService) CreateTask(t *model.DeployTask) error {
 	return s.queueClient.EnqueueDeployTask(t.ID)
 }
 
-// RetryTask 重试一个失败的部署任务：将状态重置为 PENDING，清空执行字段，递增 retry_count，重新入队。
+// RetryTask 重试一个失败的部署任务：将状态重置为 PENDING，清空执行字段，递增 retry_count，
+// 清理旧的阶段历史记录，重新入队。
 func (s *DeployService) RetryTask(taskID uint) (*model.DeployTask, error) {
 	var task model.DeployTask
 	if err := s.db.First(&task, taskID).Error; err != nil {
@@ -173,6 +175,11 @@ func (s *DeployService) RetryTask(taskID uint) (*model.DeployTask, error) {
 
 	if task.Status != "FAILED" {
 		return nil, fmt.Errorf("只能重试失败的任务，当前状态: %s", task.Status)
+	}
+
+	// 清理旧的阶段历史记录，避免重试后仍显示上次失败的错误信息
+	if err := s.db.Where("task_id = ?", taskID).Delete(&model.StageHistory{}).Error; err != nil {
+		log.S().Warnf("清理任务 %d 旧的阶段历史记录失败: %v", taskID, err)
 	}
 
 	// 使用 Updates(map) 而非 Save，确保零值字段（time.Time{}、0、"")被正确写入
@@ -205,7 +212,7 @@ func (s *DeployService) RetryTask(taskID uint) (*model.DeployTask, error) {
 	return &task, nil
 }
 
-// ProcessDeploymentTask 由 Asynq worker 调用，执行完整的 Jenkins→Harbor→K8s 流程。
+// ProcessDeploymentTask 由 Asynq worker 调用，执行完整的 Jenkins→Registry→K8s 流程。
 func (s *DeployService) ProcessDeploymentTask(ctx context.Context, taskID uint) error {
 	var task model.DeployTask
 	if err := s.db.First(&task, taskID).Error; err != nil {
@@ -218,11 +225,11 @@ func (s *DeployService) ProcessDeploymentTask(ctx context.Context, taskID uint) 
 	}
 
 	// --- PENDING stage: record that the task has started processing ---
-	s.startStage(taskID, "PENDING")
+	s.startStage(taskID, "PENDING", task.RetryCount)
 	s.finishStage(taskID, "PENDING", "success", "")
 
 	// 1. 开始构建阶段
-	s.startStage(taskID, "BUILDING")
+	s.startStage(taskID, "BUILDING", task.RetryCount)
 	s.updateTaskStatus(taskID, "BUILDING", "开始Jenkins构建流程", "")
 
 	// 2. 触发Jenkins构建
@@ -246,21 +253,21 @@ func (s *DeployService) ProcessDeploymentTask(ctx context.Context, taskID uint) 
 	s.finishStage(taskID, "BUILDING", "success", "")
 
 	// 4. 开始推送阶段
-	s.startStage(taskID, "PUSHING")
-	s.updateTaskStatus(taskID, "PUSHING", "开始推送镜像到Harbor", "")
-	log.S().Infof("pushing image: project=%s name=%s tag=%s", task.HarborProject, task.ImageName, task.ImageTag)
+	s.startStage(taskID, "PUSHING", task.RetryCount)
+	s.updateTaskStatus(taskID, "PUSHING", "开始推送镜像到仓库", "")
+	log.S().Infof("pushing image: project=%s name=%s tag=%s", task.RegistryProject, task.ImageName, task.ImageTag)
 
 	// 5. 验证镜像推送
-	if !s.verifyImageInHarbor(task.HarborProject, task.ImageName, task.ImageTag) {
-		errMsg := "Harbor镜像验证失败"
+	if !s.verifyImageInRegistryForTask(&task) {
+		errMsg := "镜像验证失败"
 		s.finishStage(taskID, "PUSHING", "failed", errMsg)
 		s.updateTaskStatus(taskID, "FAILED", errMsg, errMsg)
-		return fmt.Errorf("harbor image not found: %s/%s:%s", task.HarborProject, task.ImageName, task.ImageTag)
+		return fmt.Errorf("registry image not found: %s/%s:%s", task.RegistryProject, task.ImageName, task.ImageTag)
 	}
 	s.finishStage(taskID, "PUSHING", "success", "")
 
 	// 6. 开始部署阶段 — 根据部署目标分支
-	s.startStage(taskID, "DEPLOYING")
+	s.startStage(taskID, "DEPLOYING", task.RetryCount)
 	deployTarget := task.DeployTarget
 	if deployTarget == "" {
 		deployTarget = task.DeployType // 兼容旧数据
@@ -331,11 +338,12 @@ func (s *DeployService) triggerJenkinsBuild(task *model.DeployTask) (*core.Jenki
 	// 3. 查找 ApplicationDeployment 以获取平台关联配置
 	var appDeploy model.ApplicationDeployment
 	jenkinsClient := s.jenkins // 默认使用全局 Jenkins 客户端
-	var harborCredsID string
+	var registryCredsID string
 	var gitCredsID string
-	var harborRegistry string
-	var harborProject string
+	var registryURL string
+	var registryProject string
 	var imageName string
+	var imageRepoForProjectCheck *model.ImageRepository // 用于确保仓库项目存在
 
 	// 尝试查找部署配置来获取平台关联
 	if err := s.db.Where("application_id = ? AND environment_id = ?", task.ProjectID, task.EnvID).First(&appDeploy).Error; err == nil {
@@ -356,27 +364,28 @@ func (s *DeployService) triggerJenkinsBuild(task *model.DeployTask) (*core.Jenki
 			}
 		}
 
-		// 3b. 镜像仓库：注入 Harbor 凭据
+		// 3b. 镜像仓库：注入仓库凭据
 		if appDeploy.ImageRepoID != nil && *appDeploy.ImageRepoID > 0 {
 			var imageRepo model.ImageRepository
 			if err := s.db.First(&imageRepo, *appDeploy.ImageRepoID).Error; err == nil {
-				harborCredsID = fmt.Sprintf("zebra-harbor-%d", imageRepo.ID)
-				harborRegistry = stripURLProtocol(imageRepo.URL)
-				// 注入 Harbor 凭据到 Jenkins
+				imageRepoForProjectCheck = &imageRepo // 保存引用，用于后续项目检查
+				registryCredsID = fmt.Sprintf("zebra-registry-%d", imageRepo.ID)
+				registryURL = stripURLProtocol(imageRepo.URL)
+				// 注入仓库凭据到 Jenkins
 				if err := jenkinsClient.CreateOrUpdateUsernamePasswordCredential(
-					harborCredsID,
+					registryCredsID,
 					imageRepo.Username,
 					imageRepo.Password,
-					fmt.Sprintf("ZebraOps Harbor Credential (%s)", imageRepo.Name),
+					fmt.Sprintf("ZebraOps Registry Credential (%s)", imageRepo.Name),
 				); err != nil {
 					// 凭据注入失败，检查是否已存在；若不存在则阻断流程
-					exists, checkErr := jenkinsClient.CredentialExists(harborCredsID)
+					exists, checkErr := jenkinsClient.CredentialExists(registryCredsID)
 					if checkErr != nil || !exists {
-						return nil, nil, fmt.Errorf("failed to inject Harbor credential %s and it does not exist in Jenkins: %v", harborCredsID, err)
+						return nil, nil, fmt.Errorf("failed to inject registry credential %s and it does not exist in Jenkins: %v", registryCredsID, err)
 					}
-					log.S().Warnf("Harbor credential injection failed but %s already exists in Jenkins, continuing: %v", harborCredsID, err)
+					log.S().Warnf("Registry credential injection failed but %s already exists in Jenkins, continuing: %v", registryCredsID, err)
 				} else {
-					log.S().Infof("Harbor credential %s injected into Jenkins", harborCredsID)
+					log.S().Infof("Registry credential %s injected into Jenkins", registryCredsID)
 				}
 			} else {
 				log.S().Warnf("Failed to load ImageRepository %d: %v", *appDeploy.ImageRepoID, err)
@@ -470,22 +479,37 @@ func (s *DeployService) triggerJenkinsBuild(task *model.DeployTask) (*core.Jenki
 	}
 
 	// 4. Fallback：如果平台关联未设置，使用全局配置
-	if harborRegistry == "" {
-		harborRegistry = stripURLProtocol(s.cfg.HarborURL)
+	if registryURL == "" {
+		registryURL = stripURLProtocol(s.cfg.RegistryURL)
 	}
-	if harborProject == "" {
-		harborProject = task.HarborProject
+	if registryProject == "" {
+		registryProject = task.RegistryProject
 	}
 	if imageName == "" {
 		imageName = task.ImageName
 	}
-	if harborCredsID == "" {
-		// 未配置平台关联时，凭据 ID 使用约定值 "harbor-creds"
-		// 注意：这依赖 Jenkins 中已有手动创建的 harbor-creds 凭据
-		harborCredsID = "harbor-creds"
+	if registryCredsID == "" {
+		// 未配置平台关联时，凭据 ID 使用约定值 "registry-creds"
+		// 注意：这依赖 Jenkins 中已有手动创建的 registry-creds 凭据
+		registryCredsID = "registry-creds"
 	}
 	if gitCredsID == "" {
 		gitCredsID = "gitlab_user_orange"
+	}
+
+	// 4b. 确保镜像仓库项目/命名空间存在（Harbor/ACR 需要预先创建项目）
+	if imageRepoForProjectCheck != nil {
+		registryClient := core.NewRegistryClientFromRepo(imageRepoForProjectCheck)
+		if err := registryClient.EnsureProjectExists(registryProject); err != nil {
+			log.S().Warnf("Failed to ensure registry project %s exists: %v, continuing (project may already exist)", registryProject, err)
+			// 不阻断流程——如果项目创建失败但项目实际上已存在，Jenkins push 仍能成功
+		}
+	} else {
+		// 全局配置 fallback：使用 V2 适配器（V2 不需要项目创建）
+		registryClient := core.NewV2RegistryAdapter(s.cfg.RegistryURL, s.cfg.RegistryUser, s.cfg.RegistryPass)
+		if err := registryClient.EnsureProjectExists(registryProject); err != nil {
+			log.S().Warnf("Failed to ensure registry project %s exists (global config): %v", registryProject, err)
+		}
 	}
 
 	// 5. 检查 Jenkins Job 是否存在，不存在则创建；已存在则更新配置
@@ -520,10 +544,10 @@ func (s *DeployService) triggerJenkinsBuild(task *model.DeployTask) (*core.Jenki
 		"TARGET_BRANCH":   task.GitRef,
 		"Repo_URL":        repo.RepoURL,
 		"Tag":             task.ImageTag,
-		"HARBOR_REGISTRY": harborRegistry,
-		"HARBOR_PROJECT":  harborProject,
+		"REGISTRY_URL": registryURL,
+		"REGISTRY_PROJECT":  registryProject,
 		"IMAGE_NAME":      imageName,
-		"HARBOR_CREDS_ID": harborCredsID,
+		"REGISTRY_CREDS_ID": registryCredsID,
 		"GIT_CREDS_ID":    gitCredsID,
 		"DEPLOY_TARGET":   task.DeployTarget,
 	}
@@ -561,9 +585,32 @@ func (s *DeployService) waitForJenkinsBuild(ctx context.Context, jenkinsClient *
 	}
 }
 
-// verifyImageInHarbor 验证Harbor/ACR中的镜像是否存在
-func (s *DeployService) verifyImageInHarbor(project, imageName, tag string) bool {
-	return s.harbor.VerifyImageExists(project, imageName, tag)
+// verifyImageInRegistry 验证镜像仓库中的镜像是否存在
+// 使用部署配置关联的仓库客户端，如无关联则使用全局默认
+func (s *DeployService) verifyImageInRegistry(project, imageName, tag string) bool {
+	return s.registry.VerifyImageExists(project, imageName, tag)
+}
+
+// getRegistryClientForTask 根据部署任务关联的应用配置获取动态镜像仓库客户端
+func (s *DeployService) getRegistryClientForTask(task *model.DeployTask) core.RegistryClient {
+	var appDeploy model.ApplicationDeployment
+	if err := s.db.Where("application_id = ? AND environment_id = ?", task.ProjectID, task.EnvID).First(&appDeploy).Error; err == nil {
+		if appDeploy.ImageRepoID != nil && *appDeploy.ImageRepoID > 0 {
+			var imageRepo model.ImageRepository
+			if err := s.db.First(&imageRepo, *appDeploy.ImageRepoID).Error; err == nil {
+				return core.NewRegistryClient(imageRepo.Type, imageRepo.URL, imageRepo.Username, imageRepo.Password)
+			}
+			log.S().Warnf("Failed to load ImageRepository %d for task %d: %v", *appDeploy.ImageRepoID, task.ID, err)
+		}
+	}
+	// Fallback: 全局配置
+	return s.registry
+}
+
+// verifyImageInRegistryForTask 使用动态客户端验证镜像（按部署配置关联的仓库验证）
+func (s *DeployService) verifyImageInRegistryForTask(task *model.DeployTask) bool {
+	client := s.getRegistryClientForTask(task)
+	return client.VerifyImageExists(task.RegistryProject, task.ImageName, task.ImageTag)
 }
 
 // deployToDocker 通过SSH部署docker-compose到Linux主机
@@ -587,7 +634,14 @@ func (s *DeployService) deployToDocker(task *model.DeployTask) error {
 	}
 
 	// 3. 渲染模板内容
-	renderedYAML := s.renderDockerTemplate(deploymentTemplate.Content, task)
+	// 3. 渲染模板内容（包含自定义变量）
+	customVars := map[string]interface{}{}
+	if deploymentTemplate.Variables != "" {
+		if err := json.Unmarshal([]byte(deploymentTemplate.Variables), &customVars); err != nil {
+			log.S().Warnf("Failed to parse deployment template variables for task %d: %v", task.ID, err)
+		}
+	}
+	renderedYAML := s.renderDockerTemplate(deploymentTemplate.Content, task, customVars)
 
 	// 4. 创建SSH客户端
 	sshClient, err := s.createSSHClientFromServer(server)
@@ -631,7 +685,7 @@ func (s *DeployService) deployToDocker(task *model.DeployTask) error {
 }
 
 // renderDockerTemplate 渲染Docker部署模板（docker-compose YAML）
-func (s *DeployService) renderDockerTemplate(templateContent string, task *model.DeployTask) string {
+func (s *DeployService) renderDockerTemplate(templateContent string, task *model.DeployTask, customVars map[string]interface{}) string {
 	var projectName string
 	var app model.Application
 	if err := s.db.First(&app, task.ProjectID).Error; err == nil {
@@ -648,6 +702,11 @@ func (s *DeployService) renderDockerTemplate(templateContent string, task *model
 	rendered = strings.ReplaceAll(rendered, "{{PROJECT_NAME}}", projectName)
 	rendered = strings.ReplaceAll(rendered, "{{ENV_NAME}}", fmt.Sprintf("env-%d", task.EnvID))
 	rendered = strings.ReplaceAll(rendered, "{{DEPLOYMENT_NAME}}", task.DeploymentName)
+
+	// 替换自定义变量
+	for key, value := range customVars {
+		rendered = strings.ReplaceAll(rendered, "{{"+key+"}}", fmt.Sprintf("%v", value))
+	}
 
 	return rendered
 }
@@ -681,7 +740,7 @@ func (s *DeployService) deployToLinux(task *model.DeployTask) error {
 	defer sshClient.Close()
 
 	// 4. Docker 镜像提取: pull → create → cp → rm
-	fullImageRef := fmt.Sprintf("%s/%s:%s", task.HarborProject, task.ImageName, task.ImageTag)
+	fullImageRef := fmt.Sprintf("%s/%s:%s", task.RegistryProject, task.ImageName, task.ImageTag)
 
 	// 4a. Pull image
 	log.S().Infof("docker pull %s on %s", fullImageRef, server.Host)
@@ -735,7 +794,14 @@ func (s *DeployService) deployToLinux(task *model.DeployTask) error {
 	}
 
 	// 5. 渲染 Nginx 配置模板并上传
-	renderedNginxConfig := s.renderLinuxTemplate(deploymentTemplate.Content, task)
+	// 5. 渲染 Nginx 配置模板并上传（包含自定义变量）
+	linuxCustomVars := map[string]interface{}{}
+	if deploymentTemplate.Variables != "" {
+		if err := json.Unmarshal([]byte(deploymentTemplate.Variables), &linuxCustomVars); err != nil {
+			log.S().Warnf("Failed to parse deployment template variables for task %d: %v", task.ID, err)
+		}
+	}
+	renderedNginxConfig := s.renderLinuxTemplate(deploymentTemplate.Content, task, linuxCustomVars)
 	nginxConfigPath := fmt.Sprintf("/etc/nginx/conf.d/%s.conf", task.DeploymentName)
 	log.S().Infof("upload nginx config to %s:%s", server.Host, nginxConfigPath)
 	if err := sshClient.UploadFile(nginxConfigPath, []byte(renderedNginxConfig)); err != nil {
@@ -758,7 +824,7 @@ func (s *DeployService) deployToLinux(task *model.DeployTask) error {
 }
 
 // renderLinuxTemplate 渲染Linux/Nginx部署模板
-func (s *DeployService) renderLinuxTemplate(templateContent string, task *model.DeployTask) string {
+func (s *DeployService) renderLinuxTemplate(templateContent string, task *model.DeployTask, customVars map[string]interface{}) string {
 	var projectName string
 	var app model.Application
 	if err := s.db.First(&app, task.ProjectID).Error; err == nil {
@@ -776,6 +842,11 @@ func (s *DeployService) renderLinuxTemplate(templateContent string, task *model.
 	rendered = strings.ReplaceAll(rendered, "{{ENV_NAME}}", fmt.Sprintf("env-%d", task.EnvID))
 	rendered = strings.ReplaceAll(rendered, "{{DEPLOYMENT_NAME}}", task.DeploymentName)
 	rendered = strings.ReplaceAll(rendered, "{{DEPLOY_PATH}}", task.DeployPath)
+
+	// 替换自定义变量
+	for key, value := range customVars {
+		rendered = strings.ReplaceAll(rendered, "{{"+key+"}}", fmt.Sprintf("%v", value))
+	}
 
 	return rendered
 }
@@ -834,8 +905,14 @@ func (s *DeployService) deployToK8s(task *model.DeployTask) error {
 		return fmt.Errorf("no deployment template specified for task %d", task.ID)
 	}
 
-	// 6. 解析模板内容并进行参数替换
-	renderedYAML := s.renderTemplate(deploymentTemplate.Content, task)
+	// 6. 解析模板内容并进行参数替换（包含自定义变量）
+	customVars := map[string]interface{}{}
+	if deploymentTemplate.Variables != "" {
+		if err := json.Unmarshal([]byte(deploymentTemplate.Variables), &customVars); err != nil {
+			log.S().Warnf("Failed to parse deployment template variables for task %d: %v", task.ID, err)
+		}
+	}
+	renderedYAML := s.renderTemplate(deploymentTemplate.Content, task, customVars)
 
 	// 7. 解析YAML并创建K8s资源
 	return s.applyYAMLResources(clientset, renderedYAML, task)
@@ -855,7 +932,9 @@ func (s *DeployService) getK8sClientByCluster(cluster model.K8SCluster) (*kubern
 }
 
 // renderTemplate 渲染部署模板
-func (s *DeployService) renderTemplate(templateContent string, task *model.DeployTask) string {
+// 替换内置占位符（IMAGE_TAG/NAMESPACE/PROJECT_NAME/ENV_NAME）以及
+// DeploymentTemplate.Variables 中定义的自定义占位符
+func (s *DeployService) renderTemplate(templateContent string, task *model.DeployTask, customVars map[string]interface{}) string {
 	// 获取项目名称（应用的英文名）
 	var projectName string
 	var app model.Application
@@ -873,11 +952,16 @@ func (s *DeployService) renderTemplate(templateContent string, task *model.Deplo
 	rendered = strings.ReplaceAll(rendered, "\r\n", "\n")
 	rendered = strings.ReplaceAll(rendered, "\r", "\n")
 
-	// 替换模板中的占位符，保持YAML格式
+	// 替换内置模板占位符，保持YAML格式
 	rendered = strings.ReplaceAll(rendered, "{{IMAGE_TAG}}", task.ImageTag)
 	rendered = strings.ReplaceAll(rendered, "{{NAMESPACE}}", task.K8sNamespace)
 	rendered = strings.ReplaceAll(rendered, "{{PROJECT_NAME}}", projectName)
 	rendered = strings.ReplaceAll(rendered, "{{ENV_NAME}}", fmt.Sprintf("env-%d", task.EnvID))
+
+	// 替换自定义变量（从 DeploymentTemplate.Variables JSON 解析）
+	for key, value := range customVars {
+		rendered = strings.ReplaceAll(rendered, "{{"+key+"}}", fmt.Sprintf("%v", value))
+	}
 
 	return rendered
 }
@@ -1234,9 +1318,50 @@ func (s *DeployService) GetTask(id uint) (*model.DeployTask, error) {
 	return &t, nil
 }
 
-// GetTaskStages returns all StageHistory records for a deploy task.
+// GetTaskStages returns the StageHistory records for the latest execution round of a deploy task.
+// It uses retry_count to filter, but falls back to returning the latest batch by creation time
+// if retry_count is not yet populated (backward compatibility).
 func (s *DeployService) GetTaskStages(taskID uint) ([]model.StageHistory, error) {
-	return s.stageHistoryRepo.GetByTaskID(taskID)
+	// Try to get records by latest retry_count
+	maxRetry, err := s.stageHistoryRepo.GetLatestRetryCount(taskID)
+	if err != nil {
+		return nil, err
+	}
+
+	// If we have retry_count data, use it
+	if maxRetry > 0 {
+		return s.stageHistoryRepo.GetByTaskIDAndRetryCount(taskID, maxRetry)
+	}
+
+	// Fallback: all records have retry_count=0 (pre-migration data).
+	// In this case, we can't distinguish rounds by retry_count.
+	// Return the latest batch by only including records created after the most recent PENDING stage.
+	// This assumes each execution round starts with a PENDING stage.
+	var allStages []model.StageHistory
+	allStages, err = s.stageHistoryRepo.GetByTaskID(taskID)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(allStages) == 0 {
+		return allStages, nil
+	}
+
+	// Find the last PENDING stage — it marks the start of the latest execution round
+	lastPendingIdx := -1
+	for i, st := range allStages {
+		if st.Stage == "PENDING" {
+			lastPendingIdx = i
+		}
+	}
+
+	if lastPendingIdx >= 0 {
+		// Return only records from the last execution round onwards
+		return allStages[lastPendingIdx:], nil
+	}
+
+	// No PENDING stage found — return all records
+	return allStages, nil
 }
 
 // ListTasks 分页查询部署任务列表
@@ -1364,6 +1489,13 @@ func (s *DeployService) generateJobConfig(template *model.BuildTemplate, targetB
 	pipelineContent = strings.ReplaceAll(pipelineContent, "\\", "")
 	pipelineContent = strings.ReplaceAll(pipelineContent, "\r", "\n")
 
+	// 兼容旧 pipeline 脚本中的参数名迁移：HARBOR_* → REGISTRY_*
+	// 数据库中的旧 BuildTemplate 可能仍在引用 HARBOR_REGISTRY/HARBOR_PROJECT/HARBOR_CREDS_ID
+	// 替换后确保 pipeline 与新参数定义一致
+	pipelineContent = strings.ReplaceAll(pipelineContent, "HARBOR_REGISTRY", "REGISTRY_URL")
+	pipelineContent = strings.ReplaceAll(pipelineContent, "HARBOR_PROJECT", "REGISTRY_PROJECT")
+	pipelineContent = strings.ReplaceAll(pipelineContent, "HARBOR_CREDS_ID", "REGISTRY_CREDS_ID")
+
 	escapedPipeline := escapeXMLContent(pipelineContent)
 
 	config := fmt.Sprintf(`<?xml version='1.1' encoding='UTF-8'?>
@@ -1392,13 +1524,13 @@ func (s *DeployService) generateJobConfig(template *model.BuildTemplate, targetB
 					<trim>false</trim>
 				</hudson.model.StringParameterDefinition>
 				<hudson.model.StringParameterDefinition>
-					<name>HARBOR_REGISTRY</name>
+					<name>REGISTRY_URL</name>
 					<description>Image registry URL</description>
 					<defaultValue></defaultValue>
 					<trim>false</trim>
 				</hudson.model.StringParameterDefinition>
 				<hudson.model.StringParameterDefinition>
-					<name>HARBOR_PROJECT</name>
+					<name>REGISTRY_PROJECT</name>
 					<description>Image registry project</description>
 					<defaultValue></defaultValue>
 					<trim>false</trim>
@@ -1410,8 +1542,8 @@ func (s *DeployService) generateJobConfig(template *model.BuildTemplate, targetB
 					<trim>false</trim>
 				</hudson.model.StringParameterDefinition>
 				<hudson.model.StringParameterDefinition>
-					<name>HARBOR_CREDS_ID</name>
-					<description>Harbor credential ID in Jenkins</description>
+					<name>REGISTRY_CREDS_ID</name>
+					<description>Registry credential ID in Jenkins</description>
 					<defaultValue></defaultValue>
 					<trim>false</trim>
 				</hudson.model.StringParameterDefinition>

@@ -4481,7 +4481,7 @@ const docTemplate = `{
                 "git_ref": {
                     "type": "string"
                 },
-                "harbor_project": {
+                "registry_project": {
                     "type": "string"
                 },
                 "id": {

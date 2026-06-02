@@ -168,6 +168,41 @@ func DeleteImageRepositoryHandler(c *gin.Context, svc *service.ImageRepositorySe
 	types.Success(c, gin.H{"message": "repository deleted successfully"})
 }
 
+// ListImageTagsHandler 获取镜像标签列表
+// @Summary 获取镜像标签列表
+// @Description 根据镜像仓库ID和项目/镜像名获取标签列表
+// @Tags image-repositories
+// @Produce json
+// @Param id path int true "镜像仓库ID"
+// @Param project query string true "仓库项目(命名空间)"
+// @Param imageName query string true "镜像名称"
+// @Success 200 {object} map[string][]string
+// @Failure 400 {object} map[string]string
+// @Failure 500 {object} map[string]string
+// @Router /api/image-registries/{id}/tags [get]
+func ListImageTagsHandler(c *gin.Context, svc *service.ImageRepositoryService) {
+	idStr := c.Param("id")
+	id, err := strconv.Atoi(idStr)
+	if err != nil {
+		types.Error(c, http.StatusBadRequest, "invalid id format")
+		return
+	}
+
+	project := c.Query("project")
+	imageName := c.Query("imageName")
+	if project == "" || imageName == "" {
+		types.Error(c, http.StatusBadRequest, "project and imageName are required query parameters")
+		return
+	}
+
+	tags, err := svc.ListTags(uint(id), project, imageName)
+	if err != nil {
+		types.Error(c, http.StatusInternalServerError, err.Error())
+		return
+	}
+	types.Success(c, gin.H{"tags": tags})
+}
+
 // RegisterImageRepositoryRoutes 注册镜像仓库相关路由
 func RegisterImageRepositoryRoutes(r *gin.Engine, svc *service.ImageRepositoryService) {
 	g := r.Group("/api/image-registries")
@@ -196,5 +231,9 @@ func RegisterImageRepositoryRoutes(r *gin.Engine, svc *service.ImageRepositorySe
 		g.DELETE("/:id", func(c *gin.Context) {
 			DeleteImageRepositoryHandler(c, svc)
 		})
+			// 获取镜像标签列表
+			g.GET("/:id/tags", func(c *gin.Context) {
+				ListImageTagsHandler(c, svc)
+			})
+		}
 	}
-}

@@ -9,7 +9,10 @@ import (
 	"time"
 )
 
-type HarborClient struct {
+// V2RegistryAdapter implements the RegistryClient interface using the
+// Docker Registry V2 HTTP API. This works with any registry (Harbor,
+// Aliyun ACR, etc.) that supports the V2 API specification.
+type V2RegistryAdapter struct {
 	baseURL   string // e.g. "https://registry.cn-shanghai.aliyuncs.com"
 	username  string
 	password  string
@@ -22,14 +25,14 @@ type HarborClient struct {
 	}
 }
 
-func NewHarborClient(baseURL string, username string, password string) *HarborClient {
+func NewV2RegistryAdapter(baseURL string, username string, password string) *V2RegistryAdapter {
 	// Ensure baseURL has a protocol scheme for HTTP requests.
 	if !strings.HasPrefix(baseURL, "http://") && !strings.HasPrefix(baseURL, "https://") {
 		baseURL = "https://" + baseURL
 	}
 	// Strip trailing slash
 	baseURL = strings.TrimSuffix(baseURL, "/")
-	return &HarborClient{
+	return &V2RegistryAdapter{
 		baseURL:  baseURL,
 		username: username,
 		password: password,
@@ -48,33 +51,33 @@ type tokenResponse struct {
 
 // getToken obtains a Bearer token from the registry's auth endpoint.
 // Uses the WWW-Authenticate challenge from a 401 response to discover the token realm.
-func (h *HarborClient) getToken(scope string) (string, error) {
+func (a *V2RegistryAdapter) getToken(scope string) (string, error) {
 	// Return cached token if still valid (with 30s buffer)
-	if h.tokenCache.token != "" && time.Now().Before(h.tokenCache.expiry.Add(-30*time.Second)) {
-		return h.tokenCache.token, nil
+	if a.tokenCache.token != "" && time.Now().Before(a.tokenCache.expiry.Add(-30*time.Second)) {
+		return a.tokenCache.token, nil
 	}
 
 	// If we don't know the realm yet, discover it by hitting /v2/ and reading the challenge
-	if h.tokenCache.realm == "" {
-		if err := h.discoverAuthRealm(); err != nil {
+	if a.tokenCache.realm == "" {
+		if err := a.discoverAuthRealm(); err != nil {
 			return "", fmt.Errorf("discover auth realm: %w", err)
 		}
 	}
 
 	// Build token request URL
-	url := h.tokenCache.realm
+	url := a.tokenCache.realm
 	if scope != "" {
-		url += "?service=" + h.tokenCache.service + "&scope=" + scope
+		url += "?service=" + a.tokenCache.service + "&scope=" + scope
 	} else {
-		url += "?service=" + h.tokenCache.service
+		url += "?service=" + a.tokenCache.service
 	}
 
 	req, _ := http.NewRequest("GET", url, nil)
-	if h.username != "" {
-		req.SetBasicAuth(h.username, h.password)
+	if a.username != "" {
+		req.SetBasicAuth(a.username, a.password)
 	}
 
-	resp, err := h.client.Do(req)
+	resp, err := a.client.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("request token: %w", err)
 	}
@@ -100,17 +103,17 @@ func (h *HarborClient) getToken(scope string) (string, error) {
 	if expirySeconds <= 0 {
 		expirySeconds = 300 // default 5 min
 	}
-	h.tokenCache.token = token
-	h.tokenCache.expiry = time.Now().Add(time.Duration(expirySeconds) * time.Second)
+	a.tokenCache.token = token
+	a.tokenCache.expiry = time.Now().Add(time.Duration(expirySeconds) * time.Second)
 
 	return token, nil
 }
 
 // discoverAuthRealm hits the registry /v2/ endpoint, gets a 401,
 // and parses the WWW-Authenticate header to find the Bearer realm and service.
-func (h *HarborClient) discoverAuthRealm() error {
-	req, _ := http.NewRequest("GET", h.baseURL+"/v2/", nil)
-	resp, err := h.client.Do(req)
+func (a *V2RegistryAdapter) discoverAuthRealm() error {
+	req, _ := http.NewRequest("GET", a.baseURL+"/v2/", nil)
+	resp, err := a.client.Do(req)
 	if err != nil {
 		return fmt.Errorf("hit /v2/ endpoint: %w", err)
 	}
@@ -118,8 +121,8 @@ func (h *HarborClient) discoverAuthRealm() error {
 
 	if resp.StatusCode == 200 {
 		// No auth needed — token realm empty
-		h.tokenCache.realm = ""
-		h.tokenCache.service = ""
+		a.tokenCache.realm = ""
+		a.tokenCache.service = ""
 		return nil
 	}
 
@@ -134,8 +137,8 @@ func (h *HarborClient) discoverAuthRealm() error {
 	}
 
 	realm, service := parseBearerChallenge(authHeader)
-	h.tokenCache.realm = realm
-	h.tokenCache.service = service
+	a.tokenCache.realm = realm
+	a.tokenCache.service = service
 	return nil
 }
 
@@ -168,18 +171,18 @@ func parseBearerChallenge(header string) (realm string, service string) {
 // VerifyImageExists checks if a specific image tag exists in the registry
 // using the Docker Registry V2 API (manifest query).
 // This works with any registry (Harbor, Aliyun ACR, etc.) that supports the V2 API.
-func (h *HarborClient) VerifyImageExists(project, imageName, tag string) bool {
+func (a *V2RegistryAdapter) VerifyImageExists(project, imageName, tag string) bool {
 	// Docker V2 API uses <project>/<imageName> as the repository name
 	repoName := project + "/" + imageName
 	scope := "repository:" + repoName + ":pull"
 
-	token, err := h.getToken(scope)
+	token, err := a.getToken(scope)
 	if err != nil {
 		fmt.Printf("Error getting auth token: %v\n", err)
 		return false
 	}
 
-	url := fmt.Sprintf("%s/v2/%s/manifests/%s", h.baseURL, repoName, tag)
+	url := fmt.Sprintf("%s/v2/%s/manifests/%s", a.baseURL, repoName, tag)
 	req, _ := http.NewRequest("HEAD", url, nil)
 	if token != "" {
 		req.Header.Set("Authorization", "Bearer "+token)
@@ -187,7 +190,7 @@ func (h *HarborClient) VerifyImageExists(project, imageName, tag string) bool {
 	// Accept both v2 and v1 manifest schemas
 	req.Header.Set("Accept", "application/vnd.docker.distribution.manifest.v2+json, application/vnd.docker.distribution.manifest.v1+json, application/vnd.docker.distribution.manifest.list.v2+json")
 
-	resp, err := h.client.Do(req)
+	resp, err := a.client.Do(req)
 	if err != nil {
 		fmt.Printf("Error verifying image %s/%s:%s: %v\n", project, imageName, tag, err)
 		return false
@@ -201,7 +204,7 @@ func (h *HarborClient) VerifyImageExists(project, imageName, tag string) bool {
 	// If HEAD returns 404, try GET — some registries don't support HEAD on manifests
 	if resp.StatusCode == 404 {
 		req.Method = "GET"
-		resp2, err := h.client.Do(req)
+		resp2, err := a.client.Do(req)
 		if err != nil {
 			return false
 		}
@@ -213,12 +216,47 @@ func (h *HarborClient) VerifyImageExists(project, imageName, tag string) bool {
 	return false
 }
 
-// GetImageTags is kept for backward compatibility but now uses VerifyImageExists internally.
-// It's no longer used by deployService directly.
-func (h *HarborClient) GetImageTags(project, repository string) ([]HarborTag, error) {
-	return nil, fmt.Errorf("GetImageTags is deprecated, use VerifyImageExists instead")
+// ListTags returns the list of tags for a given repository using the Docker Registry V2 API.
+// Endpoint: GET /v2/{project}/{imageName}/tags/list
+func (a *V2RegistryAdapter) ListTags(project, imageName string) ([]string, error) {
+	repoName := project + "/" + imageName
+	scope := "repository:" + repoName + ":pull"
+
+	token, err := a.getToken(scope)
+	if err != nil {
+		return nil, fmt.Errorf("error getting auth token for tag listing: %w", err)
+	}
+
+	url := fmt.Sprintf("%s/v2/%s/tags/list", a.baseURL, repoName)
+	req, _ := http.NewRequest("GET", url, nil)
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
+
+	resp, err := a.client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("error listing tags for %s: %w", repoName, err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("tag list request returned %d: %s", resp.StatusCode, string(body))
+	}
+
+	var tagList struct {
+		Name string   `json:"name"`
+		Tags []string `json:"tags"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&tagList); err != nil {
+		return nil, fmt.Errorf("error decoding tag list response: %w", err)
+	}
+
+	return tagList.Tags, nil
 }
 
-type HarborTag struct {
-	Name string `json:"name"`
+// EnsureProjectExists is a no-op for standard V2 registries.
+// Projects/repositories are created implicitly on first docker push.
+func (a *V2RegistryAdapter) EnsureProjectExists(project string) error {
+	return nil
 }

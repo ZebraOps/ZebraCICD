@@ -19,7 +19,7 @@ type DeployTask struct {
 	K8sClusterID   uint   `gorm:"comment:K8s集群ID" json:"k8s_cluster_id"`
 	K8sNamespace   string `gorm:"size:100;comment:K8s命名空间" json:"k8s_namespace"`
 	JenkinsJobName string `gorm:"size:255;comment:Jenkins任务名称" json:"jenkins_job_name"`
-	HarborProject  string `gorm:"size:255;comment:Harbor项目" json:"harbor_project"`
+	RegistryProject string `gorm:"size:255;comment:仓库项目" json:"registry_project"`
 	ImageName      string `gorm:"size:255;comment:镜像名称" json:"image_name"`
 	DeploymentName string `gorm:"size:255;comment:部署名称" json:"deployment_name"`
 

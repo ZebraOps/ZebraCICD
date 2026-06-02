@@ -82,8 +82,8 @@ func createDeployTaskHandler(c *gin.Context, svc *service.DeployService) {
 		return
 	}
 
-	if req.HarborProject == "" || req.ImageName == "" {
-		types.Error(c, http.StatusBadRequest, "HarborProject and ImageName are required")
+	if req.RegistryProject == "" || req.ImageName == "" {
+		types.Error(c, http.StatusBadRequest, "RegistryProject and ImageName are required")
 		return
 	}
 

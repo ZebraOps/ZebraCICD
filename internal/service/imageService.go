@@ -1,6 +1,9 @@
 package service
 
 import (
+	"fmt"
+
+	"github.com/ZebraOps/ZebraCICD/internal/core"
 	"github.com/ZebraOps/ZebraCICD/internal/handler"
 	"github.com/ZebraOps/ZebraCICD/internal/model"
 	"github.com/ZebraOps/ZebraCICD/internal/types"
@@ -39,4 +42,15 @@ func (s *ImageRepositoryService) UpdateRepository(repository *model.ImageReposit
 // DeleteRepository 删除镜像仓库
 func (s *ImageRepositoryService) DeleteRepository(id uint) error {
 	return s.repo.Delete(id)
+}
+
+// ListTags 获取指定仓库中某个项目的镜像标签列表
+func (s *ImageRepositoryService) ListTags(repoID uint, project, imageName string) ([]string, error) {
+	imageRepo, err := s.repo.GetByID(repoID)
+	if err != nil {
+		return nil, fmt.Errorf("image repository %d not found: %w", repoID, err)
+	}
+
+	client := core.NewRegistryClient(imageRepo.Type, imageRepo.URL, imageRepo.Username, imageRepo.Password)
+	return client.ListTags(project, imageName)
 }
