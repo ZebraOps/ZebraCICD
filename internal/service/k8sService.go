@@ -75,12 +75,31 @@ func (s *K8SService) ListPods(clusterID uint, namespace string) ([]types.PodInfo
 			startTime = &pod.Status.StartTime.Time
 		}
 
+		// 计算 restart count（所有容器的重启次数之和）
+		var restartCount int
+		for _, cs := range pod.Status.ContainerStatuses {
+			restartCount += int(cs.RestartCount)
+		}
+
+		// 计算 ready 状态 "n/m"
+		readyContainers := 0
+		totalContainers := len(pod.Status.ContainerStatuses)
+		for _, cs := range pod.Status.ContainerStatuses {
+			if cs.Ready {
+				readyContainers++
+			}
+		}
+		ready := fmt.Sprintf("%d/%d", readyContainers, totalContainers)
+
 		pods = append(pods, types.PodInfo{
-			Name:      pod.Name,
-			Status:    podStatus,
-			NodeName:  pod.Spec.NodeName,
-			Namespace: pod.Namespace,
-			StartTime: startTime,
+			Name:         pod.Name,
+			Status:       podStatus,
+			NodeName:     pod.Spec.NodeName,
+			Namespace:    pod.Namespace,
+			StartTime:    startTime,
+			Labels:       pod.Labels,
+			RestartCount: restartCount,
+			Ready:        ready,
 		})
 	}
 
@@ -186,4 +205,83 @@ func (s *K8SService) ListNamespaces(clusterID uint) ([]string, error) {
 		names = append(names, ns.Name)
 	}
 	return names, nil
+}
+
+// ListDeploymentPods 根据 Deployment 名称获取关联的 Pod 列表
+// 先查询 K8s Deployment 对象获取其 spec.selector.matchLabels，
+// 然后用这些 labels 作为 labelSelector 查询 Pods
+func (s *K8SService) ListDeploymentPods(clusterID uint, namespace, deploymentName string) ([]types.PodInfo, error) {
+	cluster, err := s.clusterRepo.GetByID(clusterID)
+	if err != nil {
+		return nil, err
+	}
+
+	clientset, err := s.createK8sClient(cluster)
+	if err != nil {
+		return nil, err
+	}
+
+	// 1. 获取 Deployment 对象以提取其 selector
+	deployment, err := clientset.AppsV1().Deployments(namespace).Get(context.TODO(), deploymentName, metav1.GetOptions{})
+	if err != nil {
+		return nil, fmt.Errorf("获取 Deployment %s 失败: %v", deploymentName, err)
+	}
+
+	// 2. 从 Deployment 的 selector 构建 labelSelector 字符串
+	labelSelector := metav1.FormatLabelSelector(deployment.Spec.Selector)
+	if labelSelector == "" {
+		// 如果没有 selector，尝试用 Deployment 名称的 app label 作为 fallback
+		labelSelector = fmt.Sprintf("app=%s", deploymentName)
+	}
+
+	// 3. 用 labelSelector 查询 Pods
+	podList, err := clientset.CoreV1().Pods(namespace).List(context.TODO(), metav1.ListOptions{
+		LabelSelector: labelSelector,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("查询 Pods 失败: %v", err)
+	}
+
+	var pods []types.PodInfo
+	for _, pod := range podList.Items {
+		podStatus := getPodDetailedStatus(&pod)
+
+		var startTime *time.Time
+		if pod.Status.StartTime != nil {
+			startTime = &pod.Status.StartTime.Time
+		}
+
+		var restartCount int
+		for _, cs := range pod.Status.ContainerStatuses {
+			restartCount += int(cs.RestartCount)
+		}
+
+		readyContainers := 0
+		totalContainers := len(pod.Status.ContainerStatuses)
+		for _, cs := range pod.Status.ContainerStatuses {
+			if cs.Ready {
+				readyContainers++
+			}
+		}
+		ready := fmt.Sprintf("%d/%d", readyContainers, totalContainers)
+
+		pods = append(pods, types.PodInfo{
+			Name:         pod.Name,
+			Status:       podStatus,
+			NodeName:     pod.Spec.NodeName,
+			Namespace:    pod.Namespace,
+			StartTime:    startTime,
+			Labels:       pod.Labels,
+			RestartCount: restartCount,
+			Ready:        ready,
+		})
+	}
+
+	return pods, nil
+}
+
+// ListDeploymentPodsByTask 根据 DeployTask 获取关联的 Pod 列表
+// 这是一个便捷方法，根据任务的 deploy_target 分发到不同的查询逻辑
+func (s *K8SService) ListDeploymentPodsByTask(clusterID uint, namespace, deploymentName string) ([]types.PodInfo, error) {
+	return s.ListDeploymentPods(clusterID, namespace, deploymentName)
 }

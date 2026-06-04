@@ -143,14 +143,25 @@ func (s *DeployService) CreateTask(t *model.DeployTask) error {
 	t.Status = "PENDING"
 	t.ImageTag = time.Now().Format("20060102150405")
 
-	// 如果 DeploymentName 未指定，使用应用英文名+ProjectID生成
-	if t.DeploymentName == "" || t.DeploymentName == fmt.Sprintf("app-%d", t.ProjectID) {
-		var app model.Application
-		if err := s.db.First(&app, t.ProjectID).Error; err == nil && app.EName != "" {
-			t.DeploymentName = fmt.Sprintf("%s-%d", app.EName, t.ProjectID)
-		} else if t.DeploymentName == "" {
-			t.DeploymentName = fmt.Sprintf("app-%d", t.ProjectID)
+	// 自动生成部署名时仅使用应用英文名，不再拼接 ID。
+	// 同时兼容旧前端传入的“英文名-ID”默认值并归一为“英文名”。
+	var app model.Application
+	if err := s.db.First(&app, t.ProjectID).Error; err == nil {
+		legacyByID := fmt.Sprintf("app-%d", t.ProjectID)
+		legacyByENameWithID := ""
+		if app.EName != "" {
+			legacyByENameWithID = fmt.Sprintf("%s-%d", app.EName, t.ProjectID)
 		}
+
+		if t.DeploymentName == "" || t.DeploymentName == legacyByID || (legacyByENameWithID != "" && t.DeploymentName == legacyByENameWithID) {
+			if app.EName != "" {
+				t.DeploymentName = app.EName
+			} else if t.DeploymentName == "" || t.DeploymentName == legacyByID {
+				t.DeploymentName = "app"
+			}
+		}
+	} else if t.DeploymentName == "" {
+		t.DeploymentName = "app"
 	}
 
 	// 同步 DeployType（兼容旧流程）
@@ -541,15 +552,15 @@ func (s *DeployService) triggerJenkinsBuild(task *model.DeployTask) (*core.Jenki
 
 	// 7. 构建参数——包含平台注入的非敏感数据和凭据 ID
 	params := map[string]string{
-		"TARGET_BRANCH":   task.GitRef,
-		"Repo_URL":        repo.RepoURL,
-		"Tag":             task.ImageTag,
-		"REGISTRY_URL": registryURL,
+		"TARGET_BRANCH":     task.GitRef,
+		"Repo_URL":          repo.RepoURL,
+		"Tag":               task.ImageTag,
+		"REGISTRY_URL":      registryURL,
 		"REGISTRY_PROJECT":  registryProject,
-		"IMAGE_NAME":      imageName,
+		"IMAGE_NAME":        imageName,
 		"REGISTRY_CREDS_ID": registryCredsID,
-		"GIT_CREDS_ID":    gitCredsID,
-		"DEPLOY_TARGET":   task.DeployTarget,
+		"GIT_CREDS_ID":      gitCredsID,
+		"DEPLOY_TARGET":     task.DeployTarget,
 	}
 
 	result, err := jenkinsClient.BuildJob(task.JenkinsJobName, params)

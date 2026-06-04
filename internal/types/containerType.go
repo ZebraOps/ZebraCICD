@@ -12,10 +12,12 @@ type ContainerExecResponse struct {
 }
 
 type PodInfo struct {
-	Name      string            `json:"name"`
-	Status    string            `json:"status"`
-	NodeName  string            `json:"node_name"`
-	Namespace string            `json:"namespace"`
-	StartTime *time.Time        `json:"start_time,omitempty"`
-	Labels    map[string]string `json:"labels"`
+	Name         string            `json:"name"`
+	Status       string            `json:"status"`
+	NodeName     string            `json:"node_name"`
+	Namespace    string            `json:"namespace"`
+	StartTime    *time.Time        `json:"start_time,omitempty"`
+	Labels       map[string]string `json:"labels"`
+	RestartCount int               `json:"restart_count"`
+	Ready        string            `json:"ready"`
 }

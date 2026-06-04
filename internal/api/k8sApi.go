@@ -277,6 +277,45 @@ func ListPodsHandler(c *gin.Context, svc *service.K8SService) {
 	types.Success(c, pods)
 }
 
+// ListDeploymentPodsHandler 根据Deployment名称获取关联Pod列表
+// @Summary 根据Deployment名称获取关联Pod列表
+// @Description 根据Deployment名称查询其selector，然后返回关联的Pod列表
+// @Tags k8s
+// @Produce json
+// @Param id path int true "集群ID"
+// @Param namespace query string false "命名空间" default(default)
+// @Param deployment_name query string true "Deployment名称"
+// @Success 200 {array} types.PodInfo
+// @Failure 400 {object} map[string]string
+// @Failure 500 {object} map[string]string
+// @Router /api/k8s/clusters/{id}/deployment-pods [get]
+func ListDeploymentPodsHandler(c *gin.Context, svc *service.K8SService) {
+	idStr := c.Param("id")
+	id, err := strconv.Atoi(idStr)
+	if err != nil {
+		types.Error(c, http.StatusBadRequest, "invalid id format")
+		return
+	}
+
+	namespace := c.Query("namespace")
+	if namespace == "" {
+		namespace = "default"
+	}
+
+	deploymentName := c.Query("deployment_name")
+	if deploymentName == "" {
+		types.Error(c, http.StatusBadRequest, "deployment_name is required")
+		return
+	}
+
+	pods, err := svc.ListDeploymentPods(uint(id), namespace, deploymentName)
+	if err != nil {
+		types.Error(c, http.StatusInternalServerError, err.Error())
+		return
+	}
+	types.Success(c, pods)
+}
+
 // RegisterK8SRoutes 注册K8s相关路由
 func RegisterK8SRoutes(r *gin.Engine, svc *service.K8SService) {
 	g := r.Group("/api/k8s")
@@ -311,6 +350,11 @@ func RegisterK8SRoutes(r *gin.Engine, svc *service.K8SService) {
 			// 获取Pod列表
 			clusters.GET("/:id/pods", func(c *gin.Context) {
 				ListPodsHandler(c, svc)
+			})
+
+			// 根据Deployment名称获取关联Pod列表
+			clusters.GET("/:id/deployment-pods", func(c *gin.Context) {
+				ListDeploymentPodsHandler(c, svc)
 			})
 
 				// 获取命名空间列表
