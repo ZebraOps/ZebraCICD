@@ -144,7 +144,7 @@ metadata:
   name: zebra-cluster-role
 rules:
   - apiGroups: [""]
-    resources: ["nodes", "pods", "services", "namespaces", "configmaps", "secrets", "events", "jobs", "cronjobs"]
+    resources: ["nodes", "pods", "pods/log", "services", "namespaces", "configmaps", "secrets", "events", "jobs", "cronjobs"]
     verbs: ["create", "get", "list", "watch", "update", "patch", "delete"]
   - apiGroups: ["apps"]
     resources: ["deployments", "statefulsets", "daemonsets"]

@@ -21,3 +21,17 @@ type PodInfo struct {
 	RestartCount int               `json:"restart_count"`
 	Ready        string            `json:"ready"`
 }
+
+// PodLogResponse K8s Pod 日志响应
+type PodLogResponse struct {
+	Output    string `json:"output"`
+	PodName   string `json:"pod_name"`
+	Namespace string `json:"namespace"`
+	Container string `json:"container,omitempty"`
+}
+
+// ContainerLogResponse Docker 容器日志响应
+type ContainerLogResponse struct {
+	Output      string `json:"output"`
+	ContainerID string `json:"container_id"`
+}

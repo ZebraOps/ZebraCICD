@@ -214,3 +214,34 @@ func parseLabels(labelsStr string) map[string]string {
 
 	return labels
 }
+
+// GetContainerLogs 获取 Docker 容器日志（类似 docker logs）
+func (s *ServerService) GetContainerLogs(serverID uint, containerID string, tailLines int) (*types.ContainerLogResponse, error) {
+	server, err := s.serverRepo.GetByID(serverID)
+	if err != nil {
+		return nil, err
+	}
+
+	sshClient, err := s.createSSHClient(server)
+	if err != nil {
+		return nil, err
+	}
+	defer sshClient.Close()
+
+	session, err := sshClient.NewSession()
+	if err != nil {
+		return nil, err
+	}
+	defer session.Close()
+
+	cmd := fmt.Sprintf("docker logs --tail %d %s", tailLines, containerID)
+	output, err := session.CombinedOutput(cmd)
+	if err != nil {
+		return nil, fmt.Errorf("获取容器 %s 日志失败: %v", containerID, err)
+	}
+
+	return &types.ContainerLogResponse{
+		Output:      string(output),
+		ContainerID: containerID,
+	}, nil
+}

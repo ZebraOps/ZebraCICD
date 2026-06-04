@@ -357,10 +357,15 @@ func RegisterK8SRoutes(r *gin.Engine, svc *service.K8SService) {
 				ListDeploymentPodsHandler(c, svc)
 			})
 
-				// 获取命名空间列表
-				clusters.GET("/:id/namespaces", func(c *gin.Context) {
-					ListNamespacesHandler(c, svc)
-				})
+			// 获取Pod日志（类似kubectl logs）
+			clusters.GET("/:id/pods/:podName/logs", func(c *gin.Context) {
+				GetPodLogsHandler(c, svc)
+			})
+
+			// 获取命名空间列表
+			clusters.GET("/:id/namespaces", func(c *gin.Context) {
+				ListNamespacesHandler(c, svc)
+			})
 
 			// 删除集群
 			clusters.DELETE("/:id", func(c *gin.Context) {
@@ -384,4 +389,54 @@ func ListNamespacesHandler(c *gin.Context, svc *service.K8SService) {
 		return
 	}
 	types.Success(c, namespaces)
+}
+
+// GetPodLogsHandler 获取Pod日志
+// @Summary 获取Pod日志
+// @Description 获取K8s集群中指定Pod的日志（类似kubectl logs）
+// @Tags k8s
+// @Produce json
+// @Param id path int true "集群ID"
+// @Param podName path string true "Pod名称"
+// @Param namespace query string false "命名空间" default(default)
+// @Param tail query int false "日志行数" default(100)
+// @Param container query string false "容器名称（多容器Pod指定）"
+// @Success 200 {object} types.PodLogResponse
+// @Failure 400 {object} map[string]string
+// @Failure 500 {object} map[string]string
+// @Router /api/k8s/clusters/{id}/pods/{podName}/logs [get]
+func GetPodLogsHandler(c *gin.Context, svc *service.K8SService) {
+	idStr := c.Param("id")
+	id, err := strconv.Atoi(idStr)
+	if err != nil {
+		types.Error(c, http.StatusBadRequest, "invalid id format")
+		return
+	}
+
+	podName := c.Param("podName")
+	if podName == "" {
+		types.Error(c, http.StatusBadRequest, "podName is required")
+		return
+	}
+
+	namespace := c.Query("namespace")
+	if namespace == "" {
+		namespace = "default"
+	}
+
+	tail := int64(100)
+	if tailStr := c.Query("tail"); tailStr != "" {
+		if t, err := strconv.ParseInt(tailStr, 10, 64); err == nil && t > 0 {
+			tail = t
+		}
+	}
+
+	container := c.Query("container")
+
+	result, err := svc.GetPodLogs(uint(id), namespace, podName, tail, container)
+	if err != nil {
+		types.Error(c, http.StatusInternalServerError, err.Error())
+		return
+	}
+	types.Success(c, result)
 }

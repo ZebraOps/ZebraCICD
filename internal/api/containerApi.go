@@ -92,6 +92,47 @@ func AttachContainerHandler(c *gin.Context, svc *service.ServerService) {
 	}
 }
 
+// GetContainerLogsHandler 获取容器日志
+// @Summary 获取容器日志
+// @Description 获取Docker容器的日志（类似docker logs）
+// @Tags containers
+// @Produce json
+// @Param id path int true "服务器ID"
+// @Param containerID path string true "容器ID"
+// @Param tail query int false "日志行数" default(100)
+// @Success 200 {object} types.ContainerLogResponse
+// @Failure 400 {object} map[string]string
+// @Failure 500 {object} map[string]string
+// @Router /api/servers/{id}/containers/{containerID}/logs [get]
+func GetContainerLogsHandler(c *gin.Context, svc *service.ServerService) {
+	serverIDStr := c.Param("id")
+	serverID, err := strconv.Atoi(serverIDStr)
+	if err != nil {
+		types.Error(c, http.StatusBadRequest, "invalid server id format")
+		return
+	}
+
+	containerID := c.Param("containerID")
+	if containerID == "" {
+		types.Error(c, http.StatusBadRequest, "containerID is required")
+		return
+	}
+
+	tail := 100
+	if tailStr := c.Query("tail"); tailStr != "" {
+		if t, err := strconv.Atoi(tailStr); err == nil && t > 0 {
+			tail = t
+		}
+	}
+
+	result, err := svc.GetContainerLogs(uint(serverID), containerID, tail)
+	if err != nil {
+		types.Error(c, http.StatusInternalServerError, err.Error())
+		return
+	}
+	types.Success(c, result)
+}
+
 // RegisterContainerRoutes 注册容器相关路由
 func RegisterContainerRoutes(r *gin.Engine, svc *service.ServerService) {
 	g := r.Group("/api/servers/:id/containers")
@@ -104,6 +145,11 @@ func RegisterContainerRoutes(r *gin.Engine, svc *service.ServerService) {
 		// 在容器中执行命令
 		g.POST("/:containerID/exec", func(c *gin.Context) {
 			ExecContainerHandler(c, svc)
+		})
+
+		// 获取容器日志
+		g.GET("/:containerID/logs", func(c *gin.Context) {
+			GetContainerLogsHandler(c, svc)
 		})
 
 		// 连接到容器

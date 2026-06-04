@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"io"
 	"time"
 
 	"github.com/ZebraOps/ZebraCICD/internal/core"
@@ -284,4 +285,43 @@ func (s *K8SService) ListDeploymentPods(clusterID uint, namespace, deploymentNam
 // 这是一个便捷方法，根据任务的 deploy_target 分发到不同的查询逻辑
 func (s *K8SService) ListDeploymentPodsByTask(clusterID uint, namespace, deploymentName string) ([]types.PodInfo, error) {
 	return s.ListDeploymentPods(clusterID, namespace, deploymentName)
+}
+
+// GetPodLogs 获取 Pod 日志（类似 kubectl logs）
+func (s *K8SService) GetPodLogs(clusterID uint, namespace, podName string, tailLines int64, container string) (*types.PodLogResponse, error) {
+	cluster, err := s.clusterRepo.GetByID(clusterID)
+	if err != nil {
+		return nil, err
+	}
+
+	clientset, err := s.createK8sClient(cluster)
+	if err != nil {
+		return nil, err
+	}
+
+	logOpts := &corev1.PodLogOptions{
+		TailLines: &tailLines,
+	}
+	if container != "" {
+		logOpts.Container = container
+	}
+
+	req := clientset.CoreV1().Pods(namespace).GetLogs(podName, logOpts)
+	stream, err := req.Stream(context.TODO())
+	if err != nil {
+		return nil, fmt.Errorf("获取 Pod %s 日志失败: %v", podName, err)
+	}
+	defer stream.Close()
+
+	logData, err := io.ReadAll(stream)
+	if err != nil {
+		return nil, fmt.Errorf("读取 Pod %s 日志失败: %v", podName, err)
+	}
+
+	return &types.PodLogResponse{
+		Output:    string(logData),
+		PodName:   podName,
+		Namespace: namespace,
+		Container: container,
+	}, nil
 }
