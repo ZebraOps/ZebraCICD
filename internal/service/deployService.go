@@ -193,12 +193,12 @@ func (s *DeployService) RetryTask(taskID uint) (*model.DeployTask, error) {
 		log.S().Warnf("清理任务 %d 旧的阶段历史记录失败: %v", taskID, err)
 	}
 
-	// 使用 Updates(map) 而非 Save，确保零值字段（time.Time{}、0、"")被正确写入
+	// 使用 Updates(map) 而非 Save，确保清空字段（nil、0、""）被正确写入
 	result := s.db.Model(&model.DeployTask{}).Where("id = ? AND status = ?", taskID, "FAILED").Updates(map[string]interface{}{
 		"status":               "PENDING",
 		"retry_count":          gorm.Expr("retry_count + 1"),
-		"started_at":           time.Time{},
-		"finished_at":          time.Time{},
+		"started_at":           nil,
+		"finished_at":          nil,
 		"error_message":        "",
 		"jenkins_build_number": 0,
 	})
@@ -1307,6 +1307,10 @@ func (s *DeployService) updateTaskStatus(taskID uint, status, message, errorMsg 
 	updates := map[string]interface{}{
 		"status":     status,
 		"updated_at": now,
+	}
+
+	if status == "BUILDING" {
+		updates["started_at"] = now
 	}
 
 	if status == "SUCCESS" || status == "FAILED" {
