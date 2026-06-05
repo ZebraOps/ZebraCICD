@@ -1380,14 +1380,24 @@ func (s *DeployService) GetTaskStages(taskID uint) ([]model.StageHistory, error)
 }
 
 // ListTasks 分页查询部署任务列表
-func (s *DeployService) ListTasks(status string, projectID uint, page, size int) ([]model.DeployTask, int64, error) {
+func (s *DeployService) ListTasks(status string, projectID uint, envID uint, department string, page, size int) ([]model.DeployTask, int64, error) {
 	db := s.db.Model(&model.DeployTask{})
 
 	if status != "" {
-		db = db.Where("status = ?", status)
+		db = db.Where("deploy_tasks.status = ?", status)
 	}
 	if projectID > 0 {
-		db = db.Where("project_id = ?", projectID)
+		db = db.Where("deploy_tasks.project_id = ?", projectID)
+	}
+	if envID > 0 {
+		db = db.Where("deploy_tasks.env_id = ?", envID)
+	}
+
+	// 按部门过滤需要JOIN Application和Repo表
+	if department != "" {
+		db = db.Joins("JOIN applications ON applications.id = deploy_tasks.project_id").
+			Joins("JOIN repos ON repos.id = applications.repo_id").
+			Where("repos.repo_department = ?", department)
 	}
 
 	var total int64
@@ -1397,7 +1407,7 @@ func (s *DeployService) ListTasks(status string, projectID uint, page, size int)
 
 	var tasks []model.DeployTask
 	offset := (page - 1) * size
-	if err := db.Order("id DESC").Offset(offset).Limit(size).Find(&tasks).Error; err != nil {
+	if err := db.Order("deploy_tasks.id DESC").Offset(offset).Limit(size).Find(&tasks).Error; err != nil {
 		return nil, 0, err
 	}
 

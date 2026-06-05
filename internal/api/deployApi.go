@@ -127,11 +127,13 @@ func getDeployTaskHandler(c *gin.Context, svc *service.DeployService) {
 
 // ListDeployTasks 获取部署任务列表
 // @Summary 获取部署任务列表
-// @Description 分页查询部署任务，支持按状态、项目ID筛选
+// @Description 分页查询部署任务，支持按状态、项目ID、环境ID、归属部门筛选
 // @Tags deploys
 // @Produce json
 // @Param status query string false "任务状态"
 // @Param project_id query int false "项目ID"
+// @Param env_id query int false "环境ID"
+// @Param department query string false "归属部门"
 // @Param page query int false "页码" default(1)
 // @Param size query int false "每页数量" default(20)
 // @Success 200 {object} types.Response
@@ -140,11 +142,20 @@ func getDeployTaskHandler(c *gin.Context, svc *service.DeployService) {
 func listDeployTasksHandler(c *gin.Context, svc *service.DeployService) {
 	status := c.Query("status")
 	projectIDStr := c.Query("project_id")
+	envIDStr := c.Query("env_id")
+	department := c.Query("department")
 
 	var projectID uint
 	if projectIDStr != "" {
 		if id, err := strconv.Atoi(projectIDStr); err == nil {
 			projectID = uint(id)
+		}
+	}
+
+	var envID uint
+	if envIDStr != "" {
+		if id, err := strconv.Atoi(envIDStr); err == nil {
+			envID = uint(id)
 		}
 	}
 
@@ -161,7 +172,7 @@ func listDeployTasksHandler(c *gin.Context, svc *service.DeployService) {
 		}
 	}
 
-	tasks, total, err := svc.ListTasks(status, projectID, page, size)
+	tasks, total, err := svc.ListTasks(status, projectID, envID, department, page, size)
 	if err != nil {
 		types.Error(c, http.StatusInternalServerError, err.Error())
 		return
