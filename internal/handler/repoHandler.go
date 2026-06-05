@@ -39,16 +39,29 @@ func (r *RepoRepository) Update(repo *model.Repo) error {
 }
 
 func (r *RepoRepository) Delete(id uint) error {
-	// 1. 先删除关联的 application_deployments（最深的外键约束）
-	if err := r.db.Where("application_id IN (SELECT id FROM applications WHERE repo_id = ?)", id).Delete(&model.ApplicationDeployment{}).Error; err != nil {
-		return err
-	}
-	// 2. 再删除关联的 applications
-	if err := r.db.Where("repo_id = ?", id).Delete(&model.Application{}).Error; err != nil {
-		return err
-	}
-	// 3. 最后删除 repo 本身
-	return r.db.Delete(&model.Repo{}, id).Error
+	return r.db.Transaction(func(tx *gorm.DB) error {
+		// 1. 先删除关联的 application_deployments（最深的外键约束）
+		if err := tx.Where("application_id IN (SELECT id FROM applications WHERE repo_id = ?)", id).Delete(&model.ApplicationDeployment{}).Error; err != nil {
+			return err
+		}
+		// 2. 删除关联的 deployment_template_applications（应用与部署模板的关联）
+		if err := tx.Exec("DELETE FROM deployment_template_applications WHERE application_id IN (SELECT id FROM applications WHERE repo_id = ?)", id).Error; err != nil {
+			return err
+		}
+		// 3. 删除历史遗留的 repo_deployment_templates 表记录
+		if err := tx.Exec("DELETE FROM repo_deployment_templates WHERE repo_id = ?", id).Error; err != nil {
+			// 表可能不存在，忽略错误
+			if !isTableNotExistError(err) {
+				return err
+			}
+		}
+		// 4. 再删除关联的 applications
+		if err := tx.Where("repo_id = ?", id).Delete(&model.Application{}).Error; err != nil {
+			return err
+		}
+		// 5. 最后删除 repo 本身
+		return tx.Delete(&model.Repo{}, id).Error
+	})
 }
 
 func (r *RepoRepository) GetByEName(eName string) (*model.Repo, error) {
