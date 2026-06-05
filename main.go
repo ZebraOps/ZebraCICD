@@ -32,9 +32,23 @@ import (
 // @description Minimal OpenAPI spec for Zebra-CICD endpoints
 // @host localhost:4123
 // @BasePath /
+
+const banner = `
+███████╗███████╗██████╗ ██████╗  █████╗  ██████╗ ██████╗ ███████╗
+╚══███╔╝██╔════╝██╔══██╗██╔══██╗██╔══██╗██╔═══██╗██╔══██╗██╔════╝
+  ███╔╝ █████╗  ██████╔╝██████╔╝███████║██║   ██║██████╔╝███████╗
+ ███╔╝  ██╔══╝  ██╔══██╗██╔══██╗██╔══██║██║   ██║██╔═══╝ ╚════██║
+███████╗███████╗██████╔╝██║  ██║██║  ██║╚██████╔╝██║     ███████║
+╚══════╝╚══════╝╚═════╝ ╚═╝  ╚═╝╚═╝  ╚═╝ ╚═════╝ ╚═╝     ╚══════╝
+                    [ZebraOps CI/CD Platform]
+`
+
 func main() {
 
 	defer log.Sync()
+
+	// 打印启动 Banner
+	fmt.Print(banner)
 
 	// Load config (env or config file)
 	cfg := config.Load()
@@ -46,9 +60,7 @@ func main() {
 	}
 
 	logger := log.L()
-	logger.Info("========================================")
 	logger.Info("ZebraCICD 正在启动...")
-	logger.Info("========================================")
 
 	// --- 初始化 Nacos 客户端（可选） ---
 	var nacos *nacosClient.Client
@@ -79,16 +91,16 @@ func main() {
 			logger.Info("正在从 Nacos 加载配置...")
 
 			configMap := map[string]string{
-				"database_url":     cfg.DatabaseURL,
-				"gitlab_token":     cfg.GitLabToken,
-				"gitlab_url":       cfg.GitLabURL,
-				"jenkins_url":      cfg.JenkinsURL,
-				"jenkins_password": cfg.JenkinsPass,
+				"database_url":      cfg.DatabaseURL,
+				"gitlab_token":      cfg.GitLabToken,
+				"gitlab_url":        cfg.GitLabURL,
+				"jenkins_url":       cfg.JenkinsURL,
+				"jenkins_password":  cfg.JenkinsPass,
 				"registry_url":      cfg.RegistryURL,
 				"registry_username": cfg.RegistryUser,
 				"registry_password": cfg.RegistryPass,
-				"redis_addr":       cfg.RedisAddr,
-				"redis_password":   cfg.RedisPassword,
+				"redis_addr":        cfg.RedisAddr,
+				"redis_password":    cfg.RedisPassword,
 				// 新增配置项
 				"jenkins_build_wait_timeout":    "10m",
 				"jenkins_build_poll_interval":   "10s",
