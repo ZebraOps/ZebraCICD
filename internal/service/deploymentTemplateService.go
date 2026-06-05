@@ -37,7 +37,6 @@ func (s *DeploymentTemplateService) CreateDeploymentTemplate(template *model.Dep
 		TemplateType:         template.TemplateType,
 		Content:              template.Content,
 		Variables:            template.Variables,
-		Parameters:           template.Parameters,
 		Version:              template.Version,
 		ChangeReason:         "创建模板",
 		CreatedAt:            template.CreatedAt,
@@ -83,7 +82,6 @@ func (s *DeploymentTemplateService) UpdateDeploymentTemplate(ctx context.Context
 		TemplateType:         template.TemplateType,
 		Content:              template.Content,
 		Variables:            template.Variables,
-		Parameters:           template.Parameters,
 		Version:              template.Version,
 		ChangeReason:         changeReason,
 		CreatedAt:            template.UpdatedAt,
@@ -147,7 +145,6 @@ func (s *DeploymentTemplateService) RollbackDeploymentTemplate(templateID, histo
 	template.TemplateType = history.TemplateType
 	template.Content = history.Content
 	template.Variables = history.Variables
-	template.Parameters = history.Parameters
 	template.Version = history.Version
 	template.Updater = history.Modifier
 
@@ -164,7 +161,6 @@ func (s *DeploymentTemplateService) RollbackDeploymentTemplate(templateID, histo
 		TemplateType:         template.TemplateType,
 		Content:              template.Content,
 		Variables:            template.Variables,
-		Parameters:           template.Parameters,
 		Version:              template.Version,
 		ChangeReason:         "回退到历史版本 #" + fmt.Sprintf("%d", historyID),
 	}

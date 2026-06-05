@@ -13,7 +13,6 @@ type DeploymentTemplateHistory struct {
 	TemplateType         string            `gorm:"size:50;comment:模板类型" json:"template_type"`
 	Content              string            `gorm:"type:text;comment:模板内容" json:"content"`
 	Variables            string            `gorm:"type:text;comment:模板变量" json:"variables"`
-	Parameters           string            `gorm:"type:text;comment:模板参数" json:"parameters"`
 	Version              string            `gorm:"size:50;comment:模板版本" json:"version"`
 	ChangeReason         string            `gorm:"type:text;comment:修改原因" json:"change_reason"`
 	CreatedAt            timeutil.JSONTime `gorm:"comment:创建时间" json:"created_at"`
@@ -28,7 +27,6 @@ type DeploymentTemplate struct {
 	TemplateType string            `gorm:"size:50;comment:模板类型(k8s/helm/docker/linux)" json:"template_type"`
 	Content      string            `gorm:"type:text;comment:模板内容(YAML/JSON格式)" json:"content"`
 	Variables    string            `gorm:"type:text;comment:模板变量(JSON格式)" json:"variables"`
-	Parameters   string            `gorm:"type:text;comment:模板参数(JSON格式)" json:"parameters"`
 	Version      string            `gorm:"size:50;default:'1.0';comment:模板版本" json:"version"`
 	Status       string            `gorm:"size:50;default:'active';comment:状态(active/inactive)" json:"status"`
 	Creator      string            `gorm:"size:100;comment:创建人" json:"creator"`

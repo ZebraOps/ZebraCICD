@@ -113,7 +113,6 @@ type DeploymentTemplateHistoryResponse struct {
 	TemplateType         string            `json:"template_type"`
 	Content              string            `json:"content"`
 	Variables            string            `json:"variables"`
-	Parameters           string            `json:"parameters"`
 	Version              string            `json:"version"`
 	ChangeReason         string            `json:"change_reason"`
 	CreatedAt            timeutil.JSONTime `json:"created_at"`

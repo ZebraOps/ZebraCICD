@@ -75,7 +75,6 @@ func (r *DeploymentTemplateHistoryRepository) GetHistoryByTemplateIDPaginated(te
 			TemplateType:         history.TemplateType,
 			Content:              history.Content,
 			Variables:            history.Variables,
-			Parameters:           history.Parameters,
 			Version:              history.Version,
 			ChangeReason:         history.ChangeReason,
 			CreatedAt:            history.CreatedAt,

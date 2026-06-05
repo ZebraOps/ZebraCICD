@@ -132,9 +132,6 @@ func UpdateDeploymentTemplateHandler(c *gin.Context, svc *service.DeploymentTemp
 	if req.Variables != "" {
 		existingTemplate.Variables = req.Variables
 	}
-	if req.Parameters != "" {
-		existingTemplate.Parameters = req.Parameters
-	}
 	if req.Version != "" {
 		existingTemplate.Version = req.Version
 	}
