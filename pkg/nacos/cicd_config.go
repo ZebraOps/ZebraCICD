@@ -14,30 +14,36 @@ type CICDConfig struct {
 			MaxOpenConns int `yaml:"max_open_conns"`
 		} `yaml:"connection_pool"`
 	} `yaml:"database"`
-	
+
 	GitLab struct {
 		URL     string `yaml:"url"`
 		Token   string `yaml:"token"`
 		Timeout string `yaml:"timeout"`
 	} `yaml:"gitlab"`
-	
+
 	Jenkins struct {
-		URL      string `yaml:"url"`
-		Username string `yaml:"username"`
-		Password string `yaml:"password"`
-		Timeout  string `yaml:"timeout"`
+		URL               string `yaml:"url"`
+		Username          string `yaml:"username"`
+		Password          string `yaml:"password"`
+		Timeout           string `yaml:"timeout"`
+		BuildWaitTimeout  string `yaml:"build_wait_timeout"`
+		BuildPollInterval string `yaml:"build_poll_interval"`
+		DefaultCredentials struct {
+			Registry string `yaml:"registry"`
+			Git      string `yaml:"git"`
+		} `yaml:"default_credentials"`
 	} `yaml:"jenkins"`
-	
+
 	Registry struct {
 		URL      string `yaml:"url"`
 		Username string `yaml:"username"`
 		Password string `yaml:"password"`
 	} `yaml:"registry"`
-	
+
 	Kubernetes struct {
 		Enabled bool `yaml:"enabled"`
 	} `yaml:"kubernetes"`
-	
+
 	WebSocket struct {
 		Enabled        bool `yaml:"enabled"`
 		MaxConnections int  `yaml:"max_connections"`
@@ -58,6 +64,31 @@ type CICDConfig struct {
 		Version     string `yaml:"version"`
 		Description string `yaml:"description"`
 	} `yaml:"service"`
+
+	// 超时配置
+	Timeout struct {
+		GitlabHTTP   string `yaml:"gitlab_http"`
+		JenkinsHTTP  string `yaml:"jenkins_http"`
+		SSHConnect   string `yaml:"ssh_connect"`
+		GitTest      string `yaml:"git_test"`
+		ServerTest   string `yaml:"server_test"`
+		RegistryHTTP string `yaml:"registry_http"`
+	} `yaml:"timeout"`
+
+	// 路径配置
+	Paths struct {
+		DeployBase string `yaml:"deploy_base"`
+		NginxConf  string `yaml:"nginx_conf"`
+		Secrets    string `yaml:"secrets"`
+		Logs       string `yaml:"logs"`
+	} `yaml:"paths"`
+
+	// 队列配置
+	Queue struct {
+		MaxRetry       int    `yaml:"max_retry"`
+		TaskTimeout    string `yaml:"task_timeout"`
+		RetryDelayBase string `yaml:"retry_delay_base"`
+	} `yaml:"queue"`
 }
 
 // CICDConfigLoader CICD 专用配置加载器
@@ -180,6 +211,87 @@ func (l *CICDConfigLoader) LoadRedisPassword(defaultValue string) string {
 	return defaultValue
 }
 
+// LoadJenkinsBuildWaitTimeout 加载 Jenkins 构建等待超时
+func (l *CICDConfigLoader) LoadJenkinsBuildWaitTimeout(defaultValue string) string {
+	if l.config != nil && l.config.Jenkins.BuildWaitTimeout != "" {
+		l.logger.Info("✓ 从 Nacos YAML 加载 Jenkins BuildWaitTimeout 成功")
+		return l.config.Jenkins.BuildWaitTimeout
+	}
+	return defaultValue
+}
+
+// LoadJenkinsBuildPollInterval 加载 Jenkins 构建轮询间隔
+func (l *CICDConfigLoader) LoadJenkinsBuildPollInterval(defaultValue string) string {
+	if l.config != nil && l.config.Jenkins.BuildPollInterval != "" {
+		l.logger.Info("✓ 从 Nacos YAML 加载 Jenkins BuildPollInterval 成功")
+		return l.config.Jenkins.BuildPollInterval
+	}
+	return defaultValue
+}
+
+// LoadJenkinsDefaultRegistryCred 加载 Jenkins 默认镜像仓库凭据 ID
+func (l *CICDConfigLoader) LoadJenkinsDefaultRegistryCred(defaultValue string) string {
+	if l.config != nil && l.config.Jenkins.DefaultCredentials.Registry != "" {
+		l.logger.Info("✓ 从 Nacos YAML 加载 Jenkins DefaultRegistryCred 成功")
+		return l.config.Jenkins.DefaultCredentials.Registry
+	}
+	return defaultValue
+}
+
+// LoadJenkinsDefaultGitCred 加载 Jenkins 默认 Git 凭据 ID
+func (l *CICDConfigLoader) LoadJenkinsDefaultGitCred(defaultValue string) string {
+	if l.config != nil && l.config.Jenkins.DefaultCredentials.Git != "" {
+		l.logger.Info("✓ 从 Nacos YAML 加载 Jenkins DefaultGitCred 成功")
+		return l.config.Jenkins.DefaultCredentials.Git
+	}
+	return defaultValue
+}
+
+// LoadSSHConnectTimeout 加载 SSH 连接超时
+func (l *CICDConfigLoader) LoadSSHConnectTimeout(defaultValue string) string {
+	if l.config != nil && l.config.Timeout.SSHConnect != "" {
+		l.logger.Info("✓ 从 Nacos YAML 加载 SSH Connect Timeout 成功")
+		return l.config.Timeout.SSHConnect
+	}
+	return defaultValue
+}
+
+// LoadGitlabHTTPTimeout 加载 GitLab HTTP 超时
+func (l *CICDConfigLoader) LoadGitlabHTTPTimeout(defaultValue string) string {
+	if l.config != nil && l.config.Timeout.GitlabHTTP != "" {
+		l.logger.Info("✓ 从 Nacos YAML 加载 GitLab HTTP Timeout 成功")
+		return l.config.Timeout.GitlabHTTP
+	}
+	return defaultValue
+}
+
+// LoadJenkinsHTTPTimeout 加载 Jenkins HTTP 超时
+func (l *CICDConfigLoader) LoadJenkinsHTTPTimeout(defaultValue string) string {
+	if l.config != nil && l.config.Timeout.JenkinsHTTP != "" {
+		l.logger.Info("✓ 从 Nacos YAML 加载 Jenkins HTTP Timeout 成功")
+		return l.config.Timeout.JenkinsHTTP
+	}
+	return defaultValue
+}
+
+// LoadDeployBasePath 加载部署基础路径
+func (l *CICDConfigLoader) LoadDeployBasePath(defaultValue string) string {
+	if l.config != nil && l.config.Paths.DeployBase != "" {
+		l.logger.Info("✓ 从 Nacos YAML 加载 Deploy Base Path 成功")
+		return l.config.Paths.DeployBase
+	}
+	return defaultValue
+}
+
+// LoadNginxConfPath 加载 Nginx 配置路径
+func (l *CICDConfigLoader) LoadNginxConfPath(defaultValue string) string {
+	if l.config != nil && l.config.Paths.NginxConf != "" {
+		l.logger.Info("✓ 从 Nacos YAML 加载 Nginx Conf Path 成功")
+		return l.config.Paths.NginxConf
+	}
+	return defaultValue
+}
+
 // LoadAllConfigs 一次性加载所有配置
 func (l *CICDConfigLoader) LoadAllConfigs(cfg map[string]string) {
 	configs := []struct {
@@ -195,6 +307,16 @@ func (l *CICDConfigLoader) LoadAllConfigs(cfg map[string]string) {
 		{"registry_url", cfg["registry_url"], l.LoadRegistryURL},
 		{"redis_addr", cfg["redis_addr"], l.LoadRedisAddr},
 		{"redis_password", cfg["redis_password"], l.LoadRedisPassword},
+		// 新增配置项
+		{"jenkins_build_wait_timeout", cfg["jenkins_build_wait_timeout"], l.LoadJenkinsBuildWaitTimeout},
+		{"jenkins_build_poll_interval", cfg["jenkins_build_poll_interval"], l.LoadJenkinsBuildPollInterval},
+		{"jenkins_default_registry_cred", cfg["jenkins_default_registry_cred"], l.LoadJenkinsDefaultRegistryCred},
+		{"jenkins_default_git_cred", cfg["jenkins_default_git_cred"], l.LoadJenkinsDefaultGitCred},
+		{"ssh_connect_timeout", cfg["ssh_connect_timeout"], l.LoadSSHConnectTimeout},
+		{"gitlab_http_timeout", cfg["gitlab_http_timeout"], l.LoadGitlabHTTPTimeout},
+		{"jenkins_http_timeout", cfg["jenkins_http_timeout"], l.LoadJenkinsHTTPTimeout},
+		{"deploy_base_path", cfg["deploy_base_path"], l.LoadDeployBasePath},
+		{"nginx_conf_path", cfg["nginx_conf_path"], l.LoadNginxConfPath},
 	}
 
 	for _, c := range configs {

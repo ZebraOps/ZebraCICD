@@ -6,6 +6,7 @@ import (
 	"strings" // 添加缺失的导入
 	"time"    // 添加缺失的导入
 
+	"github.com/ZebraOps/ZebraCICD/config"
 	"github.com/ZebraOps/ZebraCICD/internal/handler"
 	"github.com/ZebraOps/ZebraCICD/internal/model"
 	"github.com/ZebraOps/ZebraCICD/internal/types"
@@ -15,11 +16,13 @@ import (
 
 type ServerService struct {
 	serverRepo *handler.ServerRepository
+	cfg       *config.Config
 }
 
-func NewServerService(serverRepo *handler.ServerRepository) *ServerService {
+func NewServerService(serverRepo *handler.ServerRepository, cfg *config.Config) *ServerService {
 	return &ServerService{
 		serverRepo: serverRepo,
+		cfg:       cfg,
 	}
 }
 
@@ -170,11 +173,17 @@ func (s *ServerService) createSSHClient(server *model.Server) (*ssh.Client, erro
 		authMethods = append(authMethods, ssh.Password(server.Password))
 	}
 
+	// 使用配置值
+	sshTimeout := s.cfg.SSHConnectTimeout
+	if sshTimeout == 0 {
+		sshTimeout = 10 * time.Second
+	}
+
 	config := &ssh.ClientConfig{
 		User:            server.Username,
 		Auth:            authMethods,
 		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
-		Timeout:         10 * time.Second,
+		Timeout:         sshTimeout,
 	}
 
 	addr := fmt.Sprintf("%s:%d", server.Host, server.Port)

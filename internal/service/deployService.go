@@ -85,9 +85,29 @@ func (s *DeployService) getK8sClient(clusterID uint) (*kubernetes.Clientset, err
 }
 
 func NewDeployService(db *gorm.DB, cfg *config.Config, queueClient *queue.Client, serverRepo *handler.ServerRepository, stageHistoryRepo *handler.StageHistoryRepository) *DeployService {
-	gc := core.NewGitLabClient(cfg.GitLabURL, cfg.GitLabToken)
+	// 使用配置值创建 GitLab 客户端
+	gitlabTimeout := cfg.GitlabHTTPTimeout
+	if gitlabTimeout == 0 {
+		gitlabTimeout = 15 * time.Second
+	}
+	gc := core.NewGitLabClientWithTimeout(cfg.GitLabURL, cfg.GitLabToken, gitlabTimeout)
+
 	rc := core.NewV2RegistryAdapter(cfg.RegistryURL, cfg.RegistryUser, cfg.RegistryPass)
-	jc := core.NewJenkinsClient(cfg.JenkinsURL, cfg.JenkinsUser, cfg.JenkinsPass)
+
+	// 使用配置值创建 Jenkins 客户端
+	jenkinsHTTPTimeout := cfg.JenkinsHTTPTimeout
+	if jenkinsHTTPTimeout == 0 {
+		jenkinsHTTPTimeout = 30 * time.Second
+	}
+	jenkinsBuildWaitTimeout := cfg.JenkinsBuildWaitTimeout
+	if jenkinsBuildWaitTimeout == 0 {
+		jenkinsBuildWaitTimeout = 10 * time.Minute
+	}
+	jenkinsBuildPollInterval := cfg.JenkinsBuildPollInterval
+	if jenkinsBuildPollInterval == 0 {
+		jenkinsBuildPollInterval = 10 * time.Second
+	}
+	jc := core.NewJenkinsClientWithTimeout(cfg.JenkinsURL, cfg.JenkinsUser, cfg.JenkinsPass, jenkinsHTTPTimeout, jenkinsBuildWaitTimeout, jenkinsBuildPollInterval)
 
 	return &DeployService{
 		db:               db,
@@ -500,12 +520,17 @@ func (s *DeployService) triggerJenkinsBuild(task *model.DeployTask) (*core.Jenki
 		imageName = task.ImageName
 	}
 	if registryCredsID == "" {
-		// 未配置平台关联时，凭据 ID 使用约定值 "registry-creds"
-		// 注意：这依赖 Jenkins 中已有手动创建的 registry-creds 凭据
-		registryCredsID = "registry-creds"
+		// 未配置平台关联时，使用配置中的默认凭据 ID
+		registryCredsID = s.cfg.JenkinsDefaultRegistryCred
+		if registryCredsID == "" {
+			registryCredsID = "registry-creds"
+		}
 	}
 	if gitCredsID == "" {
-		gitCredsID = "gitlab_user_orange"
+		gitCredsID = s.cfg.JenkinsDefaultGitCred
+		if gitCredsID == "" {
+			gitCredsID = "gitlab_user_orange"
+		}
 	}
 
 	// 4b. 确保镜像仓库项目/命名空间存在（Harbor/ACR 需要预先创建项目）
@@ -572,8 +597,18 @@ func (s *DeployService) triggerJenkinsBuild(task *model.DeployTask) (*core.Jenki
 
 // waitForJenkinsBuild 等待Jenkins构建完成（使用触发构建时的同一 Jenkins 客户端）
 func (s *DeployService) waitForJenkinsBuild(ctx context.Context, jenkinsClient *core.JenkinsClient, jobName string, buildNumber int) bool {
-	timeout := time.After(10 * time.Minute)
-	ticker := time.NewTicker(10 * time.Second)
+	// 使用配置值
+	buildWaitTimeout := s.cfg.JenkinsBuildWaitTimeout
+	if buildWaitTimeout == 0 {
+		buildWaitTimeout = 10 * time.Minute
+	}
+	pollInterval := s.cfg.JenkinsBuildPollInterval
+	if pollInterval == 0 {
+		pollInterval = 10 * time.Second
+	}
+
+	timeout := time.After(buildWaitTimeout)
+	ticker := time.NewTicker(pollInterval)
 	defer ticker.Stop()
 
 	for {
@@ -662,7 +697,11 @@ func (s *DeployService) deployToDocker(task *model.DeployTask) error {
 	defer sshClient.Close()
 
 	// 5. 创建远端部署目录
-	composeDir := fmt.Sprintf("/opt/zebra-deploy/%s", task.DeploymentName)
+	deployBase := s.cfg.DeployBasePath
+	if deployBase == "" {
+		deployBase = "/opt/zebra-deploy"
+	}
+	composeDir := fmt.Sprintf("%s/%s", deployBase, task.DeploymentName)
 	_, _, exitCode, _ := sshClient.RunCommandOutput(fmt.Sprintf("mkdir -p %s", composeDir))
 	if exitCode != 0 {
 		return fmt.Errorf("创建部署目录 %s 失败 (exit=%d)", composeDir, exitCode)
@@ -782,7 +821,11 @@ func (s *DeployService) deployToLinux(task *model.DeployTask) error {
 	// 4d. 确保目标目录存在
 	deployPath := task.DeployPath
 	if deployPath == "" {
-		deployPath = fmt.Sprintf("/opt/zebra-deploy/%s", task.DeploymentName)
+		deployBase := s.cfg.DeployBasePath
+		if deployBase == "" {
+			deployBase = "/opt/zebra-deploy"
+		}
+		deployPath = fmt.Sprintf("%s/%s", deployBase, task.DeploymentName)
 	}
 	log.S().Infof("mkdir -p %s", deployPath)
 	_, _, exitCode, _ = sshClient.RunCommandOutput(fmt.Sprintf("mkdir -p %s 2>&1", deployPath))
@@ -813,7 +856,11 @@ func (s *DeployService) deployToLinux(task *model.DeployTask) error {
 		}
 	}
 	renderedNginxConfig := s.renderLinuxTemplate(deploymentTemplate.Content, task, linuxCustomVars)
-	nginxConfigPath := fmt.Sprintf("/etc/nginx/conf.d/%s.conf", task.DeploymentName)
+	nginxConfDir := s.cfg.NginxConfPath
+	if nginxConfDir == "" {
+		nginxConfDir = "/etc/nginx/conf.d"
+	}
+	nginxConfigPath := fmt.Sprintf("%s/%s.conf", nginxConfDir, task.DeploymentName)
 	log.S().Infof("upload nginx config to %s:%s", server.Host, nginxConfigPath)
 	if err := sshClient.UploadFile(nginxConfigPath, []byte(renderedNginxConfig)); err != nil {
 		return fmt.Errorf("上传 Nginx 配置失败: %v", err)

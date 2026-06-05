@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/ZebraOps/ZebraCICD/config"
 	"github.com/ZebraOps/ZebraCICD/internal/api"
@@ -88,6 +89,16 @@ func main() {
 				"registry_password": cfg.RegistryPass,
 				"redis_addr":       cfg.RedisAddr,
 				"redis_password":   cfg.RedisPassword,
+				// 新增配置项
+				"jenkins_build_wait_timeout":    "10m",
+				"jenkins_build_poll_interval":   "10s",
+				"jenkins_default_registry_cred": "registry-creds",
+				"jenkins_default_git_cred":      "gitlab_user_orange",
+				"ssh_connect_timeout":           "10s",
+				"gitlab_http_timeout":           "15s",
+				"jenkins_http_timeout":          "30s",
+				"deploy_base_path":              "/opt/zebra-deploy",
+				"nginx_conf_path":               "/etc/nginx/conf.d",
 			}
 
 			nacosLoader.LoadAllConfigs(configMap)
@@ -103,6 +114,27 @@ func main() {
 			cfg.RegistryPass = configMap["registry_password"]
 			cfg.RedisAddr = configMap["redis_addr"]
 			cfg.RedisPassword = configMap["redis_password"]
+
+			// 解析并更新新增配置
+			if v := configMap["jenkins_build_wait_timeout"]; v != "" {
+				cfg.JenkinsBuildWaitTimeout, _ = time.ParseDuration(v)
+			}
+			if v := configMap["jenkins_build_poll_interval"]; v != "" {
+				cfg.JenkinsBuildPollInterval, _ = time.ParseDuration(v)
+			}
+			cfg.JenkinsDefaultRegistryCred = configMap["jenkins_default_registry_cred"]
+			cfg.JenkinsDefaultGitCred = configMap["jenkins_default_git_cred"]
+			if v := configMap["ssh_connect_timeout"]; v != "" {
+				cfg.SSHConnectTimeout, _ = time.ParseDuration(v)
+			}
+			if v := configMap["gitlab_http_timeout"]; v != "" {
+				cfg.GitlabHTTPTimeout, _ = time.ParseDuration(v)
+			}
+			if v := configMap["jenkins_http_timeout"]; v != "" {
+				cfg.JenkinsHTTPTimeout, _ = time.ParseDuration(v)
+			}
+			cfg.DeployBasePath = configMap["deploy_base_path"]
+			cfg.NginxConfPath = configMap["nginx_conf_path"]
 
 			logger.Info("✓ Nacos 配置加载完成")
 		}
@@ -209,7 +241,7 @@ func main() {
 	k8sSvc := service.NewK8SService(k8sClusterRepo)
 
 	// 服务器相关的 Service
-	serverSvc := service.NewServerService(serverRepo)
+	serverSvc := service.NewServerService(serverRepo, cfg)
 
 	// 镜像仓库
 	imageRepoRepo := handler.NewImageRepositoryRepository(db)

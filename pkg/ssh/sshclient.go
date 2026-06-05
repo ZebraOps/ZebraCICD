@@ -49,6 +49,22 @@ func NewSSHClientWithAuth(host string, port int, user string, authMethods []ssh.
 	return &SSHClient{Host: host, Port: port, User: user, client: c}, nil
 }
 
+// NewSSHClientWithTimeout 创建带自定义超时配置的SSH客户端
+func NewSSHClientWithTimeout(host string, port int, user string, authMethods []ssh.AuthMethod, timeout time.Duration) (*SSHClient, error) {
+	config := &ssh.ClientConfig{
+		User:            user,
+		Auth:            authMethods,
+		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
+		Timeout:         timeout,
+	}
+	addr := fmt.Sprintf("%s:%d", host, port)
+	c, err := ssh.Dial("tcp", addr, config)
+	if err != nil {
+		return nil, err
+	}
+	return &SSHClient{Host: host, Port: port, User: user, Timeout: timeout, client: c}, nil
+}
+
 // Close 释放SSH连接
 func (s *SSHClient) Close() error {
 	if s.client != nil {

@@ -23,7 +23,7 @@ type Config struct {
 	JenkinsURL  string
 	JenkinsUser string
 	JenkinsPass string
-	
+
 	// Nacos 配置中心（可选）
 	NacosServerAddr string // Nacos 服务器地址，如 "192.168.192.87:8848"
 	NacosNamespace  string // 命名空间 ID，如 "zebra-dev"
@@ -36,6 +36,21 @@ type Config struct {
 	RedisPassword     string
 	RedisDB           int
 	WorkerConcurrency int
+
+	// Jenkins 详细配置
+	JenkinsBuildWaitTimeout  time.Duration
+	JenkinsBuildPollInterval time.Duration
+	JenkinsDefaultRegistryCred string
+	JenkinsDefaultGitCred      string
+
+	// 超时配置
+	GitlabHTTPTimeout  time.Duration
+	JenkinsHTTPTimeout time.Duration
+	SSHConnectTimeout  time.Duration
+
+	// 路径配置
+	DeployBasePath string
+	NginxConfPath  string
 }
 
 func Load() *Config {
@@ -97,6 +112,31 @@ func Load() *Config {
 	viper.SetDefault("nacos.password", "nacos")
 	viper.SetDefault("nacos.group", "DEFAULT_GROUP")
 
+	// 新增配置默认值
+	// Jenkins 详细配置默认值
+	viper.SetDefault("jenkins.build_wait_timeout", "10m")
+	viper.SetDefault("jenkins.build_poll_interval", "10s")
+	viper.SetDefault("jenkins.default_credentials.registry", "registry-creds")
+	viper.SetDefault("jenkins.default_credentials.git", "gitlab_user_orange")
+
+	// 超时配置默认值
+	viper.SetDefault("timeout.gitlab_http", "15s")
+	viper.SetDefault("timeout.jenkins_http", "30s")
+	viper.SetDefault("timeout.ssh_connect", "10s")
+
+	// 路径配置默认值
+	viper.SetDefault("paths.deploy_base", "/opt/zebra-deploy")
+	viper.SetDefault("paths.nginx_conf", "/etc/nginx/conf.d")
+
+	// 解析 Jenkins 超时配置
+	jenkinsBuildWaitTimeout, _ := time.ParseDuration(viper.GetString("jenkins.build_wait_timeout"))
+	jenkinsBuildPollInterval, _ := time.ParseDuration(viper.GetString("jenkins.build_poll_interval"))
+
+	// 解析 HTTP/SSH 超时配置
+	gitlabHTTPTimeout, _ := time.ParseDuration(viper.GetString("timeout.gitlab_http"))
+	jenkinsHTTPTimeout, _ := time.ParseDuration(viper.GetString("timeout.jenkins_http"))
+	sshConnectTimeout, _ := time.ParseDuration(viper.GetString("timeout.ssh_connect"))
+
 	cfg := &Config{
 		DatabaseURL:  viper.GetString("app.DatabaseURL"),
 		Port:         viper.GetString("app.Port"),
@@ -110,7 +150,7 @@ func Load() *Config {
 		JenkinsPass:  viper.GetString("app.JenkinsPass"),
 		WorkerPeriod: workerPeriod,
 		SecretsPath:  viper.GetString("app.SecretsPath"),
-		
+
 		// Nacos 配置
 		NacosServerAddr: viper.GetString("nacos.server_addr"),
 		NacosNamespace:  viper.GetString("nacos.namespace"),
@@ -123,6 +163,21 @@ func Load() *Config {
 		RedisPassword:     viper.GetString("redis.password"),
 		RedisDB:           viper.GetInt("redis.db"),
 		WorkerConcurrency: viper.GetInt("worker.concurrency"),
+
+		// Jenkins 详细配置
+		JenkinsBuildWaitTimeout:  jenkinsBuildWaitTimeout,
+		JenkinsBuildPollInterval: jenkinsBuildPollInterval,
+		JenkinsDefaultRegistryCred: viper.GetString("jenkins.default_credentials.registry"),
+		JenkinsDefaultGitCred:      viper.GetString("jenkins.default_credentials.git"),
+
+		// 超时配置
+		GitlabHTTPTimeout:  gitlabHTTPTimeout,
+		JenkinsHTTPTimeout: jenkinsHTTPTimeout,
+		SSHConnectTimeout:  sshConnectTimeout,
+
+		// 路径配置
+		DeployBasePath: viper.GetString("paths.deploy_base"),
+		NginxConfPath:  viper.GetString("paths.nginx_conf"),
 
 		Logging: types.LoggingConfig{
 			Level:            viper.GetString("logging.level"),

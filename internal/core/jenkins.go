@@ -40,7 +40,7 @@ type JenkinsBuildStatus struct {
 	Building bool   `json:"building"` // true if still building
 }
 
-// NewJenkinsClient 创建新的Jenkins客户端
+// NewJenkinsClient 创建新的Jenkins客户端（使用默认超时配置）
 func NewJenkinsClient(baseURL, username, password string) *JenkinsClient {
 	return &JenkinsClient{
 		baseURL:  baseURL,
@@ -50,6 +50,20 @@ func NewJenkinsClient(baseURL, username, password string) *JenkinsClient {
 		config: JenkinsConfig{
 			BuildWaitTimeout: 2 * time.Minute,
 			PollInterval:     5 * time.Second,
+		},
+	}
+}
+
+// NewJenkinsClientWithTimeout 创建带自定义超时配置的Jenkins客户端
+func NewJenkinsClientWithTimeout(baseURL, username, password string, httpTimeout, buildWaitTimeout, pollInterval time.Duration) *JenkinsClient {
+	return &JenkinsClient{
+		baseURL:  baseURL,
+		username: username,
+		password: password,
+		client:   &http.Client{Timeout: httpTimeout},
+		config: JenkinsConfig{
+			BuildWaitTimeout: buildWaitTimeout,
+			PollInterval:     pollInterval,
 		},
 	}
 }

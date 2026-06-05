@@ -30,6 +30,17 @@ func NewGitLabClient(baseURL, token string) *GitLabClient {
 	}
 }
 
+// NewGitLabClientWithTimeout 创建带自定义超时配置的GitLab客户端
+func NewGitLabClientWithTimeout(baseURL, token string, timeout time.Duration) *GitLabClient {
+	return &GitLabClient{
+		baseURL: baseURL,
+		token:   token,
+		client: &http.Client{
+			Timeout: timeout,
+		},
+	}
+}
+
 func (g *GitLabClient) GetBranches(projectPath string) ([]types.Branch, error) {
 	u := fmt.Sprintf("%s/api/v4/projects/%s/repository/branches", g.baseURL, url.PathEscape(projectPath))
 	req, _ := http.NewRequest("GET", u, nil)
