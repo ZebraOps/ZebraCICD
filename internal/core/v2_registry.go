@@ -260,3 +260,19 @@ func (a *V2RegistryAdapter) ListTags(project, imageName string) ([]string, error
 func (a *V2RegistryAdapter) EnsureProjectExists(project string) error {
 	return nil
 }
+
+// Ping tests the connection to the registry by hitting the /v2/ endpoint.
+func (a *V2RegistryAdapter) Ping() error {
+	req, _ := http.NewRequest("GET", a.baseURL+"/v2/", nil)
+	resp, err := a.client.Do(req)
+	if err != nil {
+		return fmt.Errorf("连接失败: %w", err)
+	}
+	defer resp.Body.Close()
+
+	// 200 means no auth needed, 401 means auth is required but endpoint exists
+	if resp.StatusCode == 200 || resp.StatusCode == 401 {
+		return nil
+	}
+	return fmt.Errorf("连接失败: HTTP %d", resp.StatusCode)
+}

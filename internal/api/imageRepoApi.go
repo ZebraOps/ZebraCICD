@@ -203,6 +203,31 @@ func ListImageTagsHandler(c *gin.Context, svc *service.ImageRepositoryService) {
 	types.Success(c, gin.H{"tags": tags})
 }
 
+// TestImageRepositoryConnectionHandler 测试镜像仓库连接
+// @Summary 测试镜像仓库连接
+// @Description 测试指定镜像仓库的连接是否正常
+// @Tags image-repositories
+// @Produce json
+// @Param id path int true "镜像仓库ID"
+// @Success 200 {object} map[string]string
+// @Failure 400 {object} map[string]string
+// @Failure 500 {object} map[string]string
+// @Router /api/image-registries/{id}/connect [post]
+func TestImageRepositoryConnectionHandler(c *gin.Context, svc *service.ImageRepositoryService) {
+	idStr := c.Param("id")
+	id, err := strconv.Atoi(idStr)
+	if err != nil {
+		types.Error(c, http.StatusBadRequest, "invalid id format")
+		return
+	}
+
+	if err := svc.TestConnection(uint(id)); err != nil {
+		types.Error(c, http.StatusInternalServerError, err.Error())
+		return
+	}
+	types.Success(c, gin.H{"message": "连接成功"})
+}
+
 // RegisterImageRepositoryRoutes 注册镜像仓库相关路由
 func RegisterImageRepositoryRoutes(r *gin.Engine, svc *service.ImageRepositoryService) {
 	g := r.Group("/api/image-registries")
@@ -234,6 +259,10 @@ func RegisterImageRepositoryRoutes(r *gin.Engine, svc *service.ImageRepositorySe
 			// 获取镜像标签列表
 			g.GET("/:id/tags", func(c *gin.Context) {
 				ListImageTagsHandler(c, svc)
+			})
+			// 测试连接
+			g.POST("/:id/connect", func(c *gin.Context) {
+				TestImageRepositoryConnectionHandler(c, svc)
 			})
 		}
 	}

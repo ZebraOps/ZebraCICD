@@ -54,3 +54,14 @@ func (s *ImageRepositoryService) ListTags(repoID uint, project, imageName string
 	client := core.NewRegistryClient(imageRepo.Type, imageRepo.URL, imageRepo.Username, imageRepo.Password)
 	return client.ListTags(project, imageName)
 }
+
+// TestConnection 测试镜像仓库连接
+func (s *ImageRepositoryService) TestConnection(id uint) error {
+	imageRepo, err := s.repo.GetByID(id)
+	if err != nil {
+		return fmt.Errorf("镜像仓库 %d 不存在: %w", id, err)
+	}
+
+	client := core.NewRegistryClientFromRepo(imageRepo)
+	return client.Ping()
+}

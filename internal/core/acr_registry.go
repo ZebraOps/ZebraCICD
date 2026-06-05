@@ -72,6 +72,11 @@ func (a *ACRAdapter) ListTags(project, imageName string) ([]string, error) {
 	return a.v2.ListTags(project, imageName)
 }
 
+// Ping tests the connection to ACR by hitting the /v2/ endpoint.
+func (a *ACRAdapter) Ping() error {
+	return a.v2.Ping()
+}
+
 // EnsureProjectExists checks if the ACR namespace exists and creates it if needed.
 // ACR requires a namespace to be created before pushing images.
 func (a *ACRAdapter) EnsureProjectExists(project string) error {

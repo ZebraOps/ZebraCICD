@@ -16,4 +16,7 @@ type RegistryClient interface {
 	// For Harbor, this calls the Harbor REST API to create a project.
 	// For ACR, this calls the ACR OpenAPI to create a namespace.
 	EnsureProjectExists(project string) error
+
+	// Ping tests the connection to the registry.
+	Ping() error
 }

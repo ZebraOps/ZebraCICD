@@ -46,6 +46,27 @@ func (h *HarborAdapter) ListTags(project, imageName string) ([]string, error) {
 	return h.v2.ListTags(project, imageName)
 }
 
+// Ping tests the connection to Harbor by calling the /api/v2.0/systeminfo endpoint.
+func (h *HarborAdapter) Ping() error {
+	url := fmt.Sprintf("%s/api/v2.0/systeminfo", h.baseURL)
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return fmt.Errorf("创建请求失败: %w", err)
+	}
+	req.SetBasicAuth(h.username, h.password)
+
+	resp, err := h.client.Do(req)
+	if err != nil {
+		return fmt.Errorf("连接失败: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == 200 {
+		return nil
+	}
+	return fmt.Errorf("连接失败: HTTP %d", resp.StatusCode)
+}
+
 // EnsureProjectExists checks if a project exists in Harbor and creates it if needed.
 // Harbor requires projects to exist before images can be pushed to them.
 func (h *HarborAdapter) EnsureProjectExists(project string) error {
