@@ -1,170 +1,334 @@
 <div align="center">
-  <h1>Zebra CICD</h1>
-  <span><a href="./README.md">中文</a> | English</span>
-  <br/>
-  <strong>ZebraOps Cloud-Native CI/CD Management Service</strong>
+  <img src="docs/logo.png" alt="ZebraCICD Logo" width="120" height="120">
+
+  <h1>ZebraCICD</h1>
+
+  <p>
+    <strong>ZebraOps Cloud-Native CI/CD Management Service</strong>
+  </p>
+
+  <p>
+    <a href="#-key-features">Features</a> •
+    <a href="#-quick-start">Quick Start</a> •
+    <a href="#-architecture">Architecture</a> •
+    <a href="#-api-endpoints">API Endpoints</a> •
+    <a href="#-development-guide">Development</a>
+  </p>
+
+  <p>
+    <a href="./README.md">中文</a> | <a href="./README.en.md">English</a>
+  </p>
+
+  <p>
+    <img src="https://img.shields.io/badge/Go-1.25+-00ADD8?style=flat&logo=go" alt="Go Version">
+    <img src="https://img.shields.io/badge/Gin-1.11-00ADD8?style=flat" alt="Gin Version">
+    <img src="https://img.shields.io/badge/PostgreSQL-14+-336791?style=flat&logo=postgresql" alt="PostgreSQL">
+    <img src="https://img.shields.io/badge/Redis-6+-DC382D?style=flat&logo=redis" alt="Redis">
+    <img src="https://img.shields.io/badge/License-MIT-green?style=flat" alt="License">
+  </p>
 </div>
 
 ---
 
-## 📖 Project Introduction
+## 📖 Project Overview
 
-Zebra CICD is the continuous integration and deployment management service of ZebraOps cloud-native operations platform, built with Go 1.25 + Gin. It provides unified management of code repositories, build templates, image registries, deployment templates, environments, and Kubernetes clusters. The full pipeline — GitLab code fetch → Jenkins build trigger → Registry image push → Kubernetes/Docker/Linux deploy — is orchestrated as an async task queue (Redis + Asynq), with stage history tracking and failure retry support.
+ZebraCICD is the continuous integration and deployment management service for the [ZebraOps](https://github.com/ZebraOps) cloud-native operations platform. It provides unified management of code repositories, build templates, image registries, deployment templates, environments, and Kubernetes clusters. Built with Go 1.25 + Gin, it orchestrates Jenkins builds, registry storage, and Kubernetes/Docker/Linux deployments through an async task queue with stage history tracking and failure retry support.
+
+### Core Capabilities
+
+```
+┌─────────────┐    ┌─────────────┐    ┌─────────────┐    ┌─────────────┐
+│   GitLab    │───▶│   Jenkins   │───▶│   Registry  │───▶│   K8s/Docker│
+│ (Code Fetch)│    │(Build Image)│    │(Push Image) │    │(Rolling Dep)│
+└─────────────┘    └─────────────┘    └─────────────┘    └─────────────┘
+       ▲                  ▲                  ▲                  ▲
+       │                  │                  │                  │
+       └──────────────────┴──────────────────┴──────────────────┘
+                              Zebra CICD Orchestration
+```
+
+---
 
 ## ✨ Key Features
 
-### Core Features
+### 🎯 Core Features
 
-- **Multi-Platform Configuration Management**: Unified management of multiple Jenkins platforms, Git platforms (GitLab/GitHub/Gitea), and image registries (Harbor/ACR/V2)
-- **Multiple Deployment Targets**: Support for Kubernetes, Docker Compose, and Linux+Nginx deployment methods
-- **Application Lifecycle Management**: Full-chain management from code repositories, build templates, deployment templates to environment configurations
-- **Automatic Credential Injection**: Automatically inject platform credentials into Jenkins during deployment, supporting both auto-create and manual-select modes
+| Feature | Description |
+|---------|-------------|
+| **Multi-Platform Configuration** | Unified management of multiple Jenkins platforms, Git platforms (GitLab/GitHub/Gitea), and image registries (Harbor/ACR/V2) |
+| **Multiple Deployment Targets** | Support for Kubernetes, Docker Compose, and Linux+Nginx deployment methods |
+| **Application Lifecycle Management** | Full-chain management from code repositories, build templates, deployment templates to environment configurations |
+| **Automatic Credential Injection** | Automatically inject platform credentials into Jenkins during deployment, supporting both auto-create and manual-select modes |
 
-### Technical Features
+### 🔄 Deployment Pipeline
 
-- **Async Task Queue**: Redis + Asynq with concurrent deploy workers and exponential backoff retry
-- **Stage History Tracking**: Record status of BUILDING → PUSHING → DEPLOYING stages, with failure retry support
-- **Build Log Query**: Jenkins console output API, frontend can poll for real-time logs
-- **Nacos Config Center**: Optional integration with Nacos to dynamically deliver database connections, timeout configs, deployment paths, etc.
-- **Structured Logging**: Zap + Lumberjack with JSON format and automatic log rotation
-- **API Documentation**: Swagger UI at `/docs`
+```
+PENDING → BUILDING → PUSHING → DEPLOYING → SUCCESS/FAILED
+            │           │           │
+            ▼           ▼           ▼
+        Jenkins     Registry     K8s/Docker/Linux
+        Build       Verify       Deploy
+```
+
+| Stage | Description |
+|-------|-------------|
+| **BUILDING** | Trigger Jenkins Pipeline to build Docker image with automatic Git/Registry credential injection |
+| **PUSHING** | Verify image has been pushed to registry |
+| **DEPLOYING** | Execute deployment based on target: K8s (Server-Side Apply), Docker (SSH + compose), Linux (SSH + Nginx) |
+
+### 🛠️ Technical Features
+
+| Feature | Implementation |
+|---------|----------------|
+| Async Task Queue | Redis + Asynq with concurrent workers and exponential backoff retry |
+| Stage History Tracking | Record BUILDING → PUSHING → DEPLOYING status for each task |
+| Build Log Query | Jenkins console output API, supports frontend polling |
+| Config Center | Optional Nacos integration for dynamic configuration |
+| Structured Logging | Zap + Lumberjack with JSON format and automatic rotation |
+| API Documentation | Swagger UI at `/docs` |
+
+---
 
 ## 🛠️ Technology Stack
 
-| Category             | Component                                           |
-| -------------------- | --------------------------------------------------- |
-| Backend Framework    | Go 1.25 + Gin                                       |
-| Database             | PostgreSQL + GORM v2                                |
-| Task Queue           | Redis + Asynq (hibiken/asynq)                       |
-| Configuration        | Viper (YAML + env vars) + Nacos (optional)          |
-| Logging              | Zap + Lumberjack                                    |
-| External Integrations| GitLab API, Jenkins API, Harbor API, Kubernetes SDK |
-| API Documentation    | Swaggo + Swagger UI                                 |
+| Category | Component | Version |
+|----------|-----------|---------|
+| Backend Framework | Go + Gin | 1.25+ / 1.11 |
+| Database | PostgreSQL + GORM | 14+ / v2 |
+| Task Queue | Redis + Asynq | 6+ / v0.26 |
+| Configuration | Viper + Nacos (optional) | 1.21 |
+| Logging | Zap + Lumberjack | 1.27 |
+| External Integrations | GitLab API, Jenkins API, Harbor API, K8s SDK | - |
+| API Documentation | Swaggo + Swagger UI | 1.16 |
+
+---
 
 ## 🌳 Directory Structure
 
 ```text
 ZebraCICD/
-├── config/               # Configuration loading (Viper)
-│   ├── config.go         #   Config struct & env variable mapping
-│   └── configs.yaml      #   Local default configuration
-├── docs/                 # Swagger docs (generated by swag init)
-├── internal/
-│   ├── api/              # Gin route registration & request binding
-│   ├── core/             # External system clients (GitLab / Jenkins / Registry / K8s)
-│   ├── handler/          # GORM database CRUD
-│   ├── model/            # Data models (GORM + JSON)
-│   ├── service/          # Business orchestration (build, deploy, application, etc.)
-│   ├── types/            # Common types & unified response structures
-│   └── worker/           # Asynq Worker (async deploy task handler)
-├── pkg/
-│   ├── log/              # Zap logger initialization wrapper
-│   ├── middleware/       # Request logging middleware
-│   ├── nacos/            # Nacos client & config loader
-│   ├── queue/            # Asynq Client / Server wrapper
-│   ├── ssh/              # SSH client (Linux host operations)
-│   └── timeutil/         # Time utilities (JSON serialization format)
-├── scripts/              # Utility scripts
-├── main.go               # Service entry point
-└── go.mod
+├── config/                   # Configuration layer
+│   ├── config.go             #   Configuration loading (Viper)
+│   └── configs.yaml          #   Local default configuration
+├── docs/                     # Swagger docs (generated by swag init)
+├── internal/                 # Internal modules
+│   ├── api/                  #   Gin route registration & request binding
+│   ├── core/                 #   External system clients (GitLab/Jenkins/Registry/K8s)
+│   ├── handler/              #   GORM database CRUD (Repository layer)
+│   ├── model/                #   Data models (GORM entities)
+│   ├── service/              #   Business orchestration (build, deploy, application)
+│   ├── types/                #   Common types & unified response structures
+│   └── worker/               #   Asynq Worker (async task processing)
+├── pkg/                      # Public packages
+│   ├── log/                  #   Zap logger wrapper
+│   ├── middleware/           #   HTTP middleware
+│   ├── nacos/                #   Nacos client & config loader
+│   ├── queue/                #   Asynq Client/Server wrapper
+│   ├── ssh/                  #   SSH client (remote host operations)
+│   └── timeutil/             #   Time utilities
+├── scripts/                  # Utility scripts
+├── logs/                     # Log output directory
+├── main.go                   # Service entry point
+├── start.sh                  # Startup script (with Nacos env vars)
+└── go.mod                    # Go module definition
 ```
+
+---
+
+## 🏗️ Architecture
+
+### Layered Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                         HTTP Request                                 │
+└─────────────────────────────────────────────────────────────────────┘
+                                  │
+                                  ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│  API Layer (internal/api/)                                          │
+│  ├── Gin Router Registration                                         │
+│  ├── Request Parameter Binding & Validation                          │
+│  └── Response Packaging                                              │
+└─────────────────────────────────────────────────────────────────────┘
+                                  │
+                                  ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│  Service Layer (internal/service/)                                  │
+│  ├── Business Logic Orchestration                                    │
+│  ├── External System Coordination                                    │
+│  └── Transaction Management                                          │
+└─────────────────────────────────────────────────────────────────────┘
+                                  │
+                                  ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│  Handler Layer (internal/handler/)                                  │
+│  ├── Repository Pattern                                              │
+│  ├── GORM Database Operations                                        │
+│  └── Query Building                                                  │
+└─────────────────────────────────────────────────────────────────────┘
+                                  │
+                                  ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│  Model Layer (internal/model/)                                      │
+│  ├── GORM Entity Definitions                                         │
+│  └── Database Table Mapping                                          │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+### Core Integrations
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                        ZebraCICD Core                                │
+├─────────────────────────────────────────────────────────────────────┤
+│                                                                      │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐              │
+│  │  GitClient    │  │JenkinsClient │  │RegistryClient│              │
+│  │              │  │              │  │              │              │
+│  │ • GitLab     │  │ • Job CRUD   │  │ • V2 API     │              │
+│  │ • GitHub     │  │ • Build      │  │ • Harbor     │              │
+│  │ • Gitea      │  │ • Credential │  │ • ACR        │              │
+│  └──────────────┘  └──────────────┘  └──────────────┘              │
+│                                                                      │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐              │
+│  │  K8sClient    │  │  SSHClient    │  │ QueueClient  │              │
+│  │              │  │              │  │              │              │
+│  │ • Deploy     │  │ • Command    │  │ • Asynq      │              │
+│  │ • Pods       │  │ • SFTP       │  │ • Redis      │              │
+│  │ • Logs       │  │ • Nginx      │  │ • Retry      │              │
+│  └──────────────┘  └──────────────┘  └──────────────┘              │
+│                                                                      │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+---
 
 ## ⚡ Quick Start
 
 ### Prerequisites
 
-- Go 1.25+
-- PostgreSQL 14+
-- Redis 6+
-- Jenkins (for build triggers)
-- Nacos 2.x (optional, for config center)
+| Dependency | Version | Purpose |
+|------------|---------|---------|
+| Go | 1.25+ | Runtime environment |
+| PostgreSQL | 14+ | Data storage |
+| Redis | 6+ | Task queue |
+| Jenkins | 2.x | Build triggers (optional) |
+| Nacos | 2.x | Config center (optional) |
 
-### Configuration
+### Installation
 
-All settings can be provided via `config/configs.yaml` or environment variables with the `ZEBRA_` prefix:
+```bash
+# 1. Clone the repository
+git clone https://github.com/ZebraOps/ZebraCICD.git
+cd ZebraCICD
 
-#### Basic Configuration
-
-| Config (YAML path)          | Environment Variable      | Description           | Default                       |
-| --------------------------- | ------------------------- | --------------------- | ----------------------------- |
-| `app.Port`                  | `ZEBRA_APP_PORT`          | Service port          | `4123`                        |
-| `app.DatabaseURL`           | `ZEBRA_APP_DATABASEURL`   | PostgreSQL DSN        | —                             |
-| `app.GitLabToken`           | `ZEBRA_APP_GITLABTOKEN`   | GitLab Private Token  | —                             |
-| `app.GitLabURL`             | `ZEBRA_APP_GITLABURL`     | GitLab base URL       | `https://gitlab.com`          |
-| `app.JenkinsURL`            | `ZEBRA_APP_JENKINSURL`    | Jenkins URL           | —                             |
-| `app.JenkinsUser`           | `ZEBRA_APP_JENKINSUSER`   | Jenkins username      | —                             |
-| `app.JenkinsPass`           | `ZEBRA_APP_JENKINSPASS`   | Jenkins password/token| —                             |
-| `redis.addr`                | `ZEBRA_REDIS_ADDR`        | Redis address         | `127.0.0.1:6379`              |
-| `redis.password`            | `ZEBRA_REDIS_PASSWORD`    | Redis password        | —                             |
-| `worker.concurrency`        | `ZEBRA_WORKER_CONCURRENCY`| Worker concurrency    | `3`                           |
-
-#### Timeout & Path Configuration (can be dynamically delivered via Nacos)
-
-| Config                     | Description               | Default               |
-| -------------------------- | ------------------------- | --------------------- |
-| `jenkins.build_wait_timeout`  | Jenkins build wait timeout    | `10m`             |
-| `jenkins.build_poll_interval` | Jenkins build poll interval   | `10s`             |
-| `timeout.gitlab_http`         | GitLab HTTP timeout           | `15s`             |
-| `timeout.jenkins_http`        | Jenkins HTTP timeout          | `30s`             |
-| `timeout.ssh_connect`         | SSH connection timeout        | `10s`             |
-| `paths.deploy_base`           | Docker deploy base path       | `/opt/zebra-deploy`|
-| `paths.nginx_conf`            | Nginx config directory        | `/etc/nginx/conf.d`|
-
-### Run
-
-```sh
-# 1. Download dependencies
+# 2. Download dependencies
 go mod tidy
 
-# 2. Edit config/configs.yaml with your DB, GitLab, Jenkins details
-# 3. Start the service
+# 3. Configure database connection (choose one)
+
+# Option A: Edit config/configs.yaml
+vim config/configs.yaml
+
+# Option B: Use environment variables
+export ZEBRA_APP_DATABASEURL="postgres://user:pass@host:5432/db?sslmode=disable"
+
+# 4. Start the service
+
+# Local development (without Nacos)
 go run main.go
 
-# Or use the start script (auto-configures Nacos environment variables)
+# Or use startup script (with Nacos configuration)
 ./start.sh
 ```
 
-After startup:
-- API Docs: http://127.0.0.1:4123/docs
-- Swagger JSON: http://127.0.0.1:4123/docs/swagger.json
+### Service Ports
 
-### Regenerate Swagger Docs
+| Service | Port |
+|---------|------|
+| ZebraCICD API | 4123 |
+| Swagger UI | http://localhost:4123/docs |
+| PostgreSQL | 5432 |
+| Redis | 6379 |
+| Nacos | 8848 |
 
-```sh
-go install github.com/swaggo/swag/cmd/swag@latest
-swag init -g main.go
-```
+---
 
-## 🔧 Nacos Config Center (Optional)
+## ⚙️ Configuration
 
-When Nacos is configured, the service pulls configs from Nacos on startup, overriding local `configs.yaml`.
+### Configuration Methods
+
+ZebraCICD supports three configuration methods, in order of priority:
+
+1. **Environment Variables** - Format: `ZEBRA_<SECTION>_<KEY>`, e.g., `ZEBRA_APP_PORT`
+2. **Nacos Config Center** - Dynamic configuration with hot reload
+3. **YAML Config File** - `config/configs.yaml` for local defaults
 
 ### Environment Variables
 
-```sh
-export NACOS_SERVER_ADDR="localhost:8848"
-export NACOS_NAMESPACE="zebra-dev"   # Leave empty to use public namespace
-export NACOS_USERNAME="nacos"
-export NACOS_PASSWORD="nacos"
-export NACOS_GROUP="DEFAULT_GROUP"
-```
+#### Basic Configuration
+
+| Environment Variable | Description | Default |
+|---------------------|-------------|---------|
+| `ZEBRA_APP_PORT` | Service port | `4123` |
+| `ZEBRA_APP_DATABASEURL` | PostgreSQL DSN | - |
+
+#### Git Platform Configuration
+
+| Environment Variable | Description | Default |
+|---------------------|-------------|---------|
+| `ZEBRA_APP_GITLABURL` | GitLab URL | `https://gitlab.com` |
+| `ZEBRA_APP_GITLABTOKEN` | GitLab Private Token | - |
+
+#### Jenkins Configuration
+
+| Environment Variable | Description | Default |
+|---------------------|-------------|---------|
+| `ZEBRA_APP_JENKINSURL` | Jenkins URL | - |
+| `ZEBRA_APP_JENKINSUSER` | Jenkins username | - |
+| `ZEBRA_APP_JENKINSPASS` | Jenkins password/token | - |
+
+#### Redis Configuration
+
+| Environment Variable | Description | Default |
+|---------------------|-------------|---------|
+| `ZEBRA_REDIS_ADDR` | Redis address | `127.0.0.1:6379` |
+| `ZEBRA_REDIS_PASSWORD` | Redis password | - |
+| `ZEBRA_REDIS_DB` | Redis database | `0` |
+
+#### Worker Configuration
+
+| Environment Variable | Description | Default |
+|---------------------|-------------|---------|
+| `ZEBRA_WORKER_CONCURRENCY` | Worker concurrency | `3` |
+
+#### Nacos Configuration (Optional)
+
+| Environment Variable | Description | Default |
+|---------------------|-------------|---------|
+| `NACOS_SERVER_ADDR` | Nacos server address | - |
+| `NACOS_NAMESPACE` | Namespace | `public` |
+| `NACOS_USERNAME` | Username | `nacos` |
+| `NACOS_PASSWORD` | Password | `nacos` |
+| `NACOS_GROUP` | Configuration group | `DEFAULT_GROUP` |
 
 ### Nacos Configuration Example
 
-Create `zebra-cicd.yaml` (Data ID) in Nacos with the following content:
+Create `zebra-cicd.yaml` (Data ID) in Nacos:
 
 ```yaml
-# ==================== Database ====================
+# Database configuration
 database:
   url: "postgres://postgres:password@192.168.1.100:5432/postgres?sslmode=disable"
 
-# ==================== GitLab ====================
+# GitLab configuration
 gitlab:
   url: "https://git.example.com"
   token: "your-gitlab-token"
   timeout: "30s"
 
-# ==================== Jenkins ====================
+# Jenkins configuration
 jenkins:
   url: "http://192.168.1.100:8080/"
   username: "admin"
@@ -176,30 +340,30 @@ jenkins:
     registry: "registry-creds"
     git: "gitlab-creds"
 
-# ==================== Registry ====================
+# Registry configuration
 registry:
   url: "registry.example.com"
   username: "admin"
   password: "your-registry-password"
 
-# ==================== Redis ====================
+# Redis configuration
 redis:
   addr: "192.168.1.100:6379"
   password: ""
   db: 0
 
-# ==================== Timeout ====================
+# Timeout configuration
 timeout:
   gitlab_http: "15s"
   jenkins_http: "30s"
   ssh_connect: "10s"
 
-# ==================== Paths ====================
+# Path configuration
 paths:
   deploy_base: "/opt/zebra-deploy"
   nginx_conf: "/etc/nginx/conf.d"
 
-# ==================== Logging ====================
+# Logging configuration
 logging:
   level: "info"
   encoding: "json"
@@ -209,53 +373,122 @@ logging:
   compress: true
 ```
 
-If `NACOS_SERVER_ADDR` is not set, Nacos integration is automatically skipped and the service uses local config only.
+---
 
 ## 📦 Data Models
 
-| Model                      | Description                          |
-| -------------------------- | ------------------------------------ |
-| `Application`              | Application service definition        |
-| `ApplicationDeployment`    | Application deployment configuration  |
-| `Repo`                     | Code repository                      |
-| `BuildTemplate`            | Jenkins Pipeline build template      |
-| `DeploymentTemplate`       | Deployment template (K8s/Docker/Linux)|
-| `Environment`              | Deployment environment (dev/test/prod)|
-| `K8SCluster`              | Kubernetes cluster configuration     |
-| `Server`                  | Linux host configuration              |
-| `GitPlatform`             | Git platform config (GitLab/GitHub)  |
-| `JenkinsPlatform`         | Jenkins platform configuration        |
-| `ImageRepository`         | Image registry configuration          |
-| `DeployTask`              | Deployment task                      |
-| `StageHistory`            | Deployment stage history             |
-| `Language`                | Programming language                  |
-| `CloudProvider`           | Cloud provider                        |
+### Core Models
 
-## 🚀 Deployment Pipeline
+| Model | Description | Key Fields |
+|-------|-------------|------------|
+| `Application` | Application service definition | name, repo_id, language_id |
+| `ApplicationDeployment` | Application deployment configuration | app_id, env_id, cluster_id, template_id |
+| `DeployTask` | Deployment task | status, stage, retry_count |
+| `StageHistory` | Stage history | task_id, stage, status, duration |
+| `BuildTemplate` | Build template | name, jenkinsfile, dockerfile |
+| `DeploymentTemplate` | Deployment template | name, content, deploy_target |
 
-```
-┌─────────────┐    ┌─────────────┐    ┌─────────────┐    ┌─────────────┐
-│   GitLab    │───▶│   Jenkins   │───▶│   Registry  │───▶│   K8s/Docker│
-│ (Code Fetch)│    │(Build Image)│    │(Push Image) │    │(Rolling Dep)│
-└─────────────┘    └─────────────┘    └─────────────┘    └─────────────┘
-       ▲                  ▲                  ▲                  ▲
-       │                  │                  │                  │
-       └──────────────────┴──────────────────┴──────────────────┘
-                         Zebra CICD Orchestration
-```
+### Platform Configuration Models
 
-1. **BUILDING**: Trigger Jenkins Pipeline to build Docker image
-2. **PUSHING**: Verify image has been pushed to registry
-3. **DEPLOYING**: Execute deployment based on target
-   - **K8s**: Deploy Deployment/Service/ConfigMap via Server-Side Apply
-   - **Docker**: Upload docker-compose.yml via SSH and start
-   - **Linux**: Extract static files via SSH + configure Nginx
+| Model | Description | Key Fields |
+|-------|-------------|------------|
+| `GitPlatform` | Git platform configuration | name, url, token, platform_type |
+| `JenkinsPlatform` | Jenkins platform configuration | name, url, username, password |
+| `ImageRepository` | Image registry configuration | name, url, registry_type |
+| `K8SCluster` | K8s cluster configuration | name, api_server, token |
+| `Server` | Linux host configuration | name, host, ssh_port |
 
-## ☸️ Kubernetes Cluster Integration
+### Auxiliary Models
 
-Register a cluster's `apiServer`, `token`, and CA certificate via the API or frontend. The deploy service retrieves the client dynamically at deploy time.
+| Model | Description |
+|-------|-------------|
+| `Environment` | Deployment environment (dev/test/prod) |
+| `Language` | Programming language definition |
+| `CloudProvider` | Cloud provider configuration |
 
-For initial cluster onboarding, create a dedicated ServiceAccount and obtain its token:
+---
+
+## 📡 API Endpoints
+
+### Applications & Deployments
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/applications` | List applications |
+| POST | `/api/applications` | Create application |
+| GET | `/api/applications/:id` | Get application details |
+| PUT | `/api/applications/:id` | Update application |
+| DELETE | `/api/applications/:id` | Delete application |
+| GET | `/api/applications/:id/deployments` | List deployment configurations |
+| POST | `/api/applications/:id/deployments` | Create deployment configuration |
+
+### Deployment Tasks
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/deploys` | List tasks |
+| POST | `/api/deploys` | Create task |
+| GET | `/api/deploys/:id` | Get task details |
+| DELETE | `/api/deploys/:id` | Delete task |
+| POST | `/api/deploys/:id/retry` | Retry task |
+| GET | `/api/deploys/:id/console` | Get Jenkins console output |
+| GET | `/api/deploys/:id/stages` | Get stage history |
+
+### Repository Management
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/repos` | List repositories |
+| POST | `/api/repos/import` | Import repository |
+| GET | `/api/repos/:id/branches` | List branches |
+| GET | `/api/repos/:id/tags` | List tags |
+
+### Template Management
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/build-templates` | List build templates |
+| POST | `/api/build-templates` | Create build template |
+| GET | `/api/deploy-templates` | List deployment templates |
+| POST | `/api/deploy-templates` | Create deployment template |
+
+### Clusters & Servers
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/k8s/clusters` | List K8s clusters |
+| POST | `/api/k8s/clusters` | Add cluster |
+| GET | `/api/k8s/clusters/:id/namespaces` | List namespaces |
+| GET | `/api/k8s/clusters/:id/pods` | List pods |
+| GET | `/api/servers` | List servers |
+| POST | `/api/servers` | Add server |
+
+### Platform Configuration
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/git-platforms` | List Git platforms |
+| POST | `/api/git-platforms` | Add Git platform |
+| GET | `/api/jenkins-platforms` | List Jenkins platforms |
+| POST | `/api/jenkins-platforms` | Add Jenkins platform |
+| GET | `/api/image-repositories` | List image registries |
+| POST | `/api/image-repositories` | Add image registry |
+
+### Other Endpoints
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/environments` | List environments |
+| GET | `/api/languages` | List languages |
+| GET | `/api/cloud-providers` | List cloud providers |
+| GET | `/health` | Health check |
+| GET | `/docs` | Swagger UI |
+
+---
+
+## ☸️ Kubernetes Integration
+
+### Create ServiceAccount
 
 ```yaml
 apiVersion: v1
@@ -290,47 +523,196 @@ roleRef:
   apiGroup: rbac.authorization.k8s.io
 ```
 
-```sh
-# Get token (Kubernetes < 1.24)
-SECRET_NAME=$(kubectl get serviceaccount zebra-sa -o jsonpath='{.secrets[0].name}')
-kubectl get secret $SECRET_NAME -o jsonpath='{.data.token}' | base64 -d
+### Get Token
 
+```bash
 # Kubernetes 1.24+
 kubectl create token zebra-sa --duration=87600h
+
+# Kubernetes < 1.24
+SECRET_NAME=$(kubectl get serviceaccount zebra-sa -o jsonpath='{.secrets[0].name}')
+kubectl get secret $SECRET_NAME -o jsonpath='{.data.token}' | base64 -d
 ```
 
-## 📡 API Endpoints
+### Get CA Certificate
 
-| Module          | Path Prefix        | Description               |
-| --------------- | ------------------ | ------------------------- |
-| Applications    | `/api/applications`| Application CRUD          |
-| Deploy Tasks    | `/api/tasks`      | Task creation, query, retry|
-| Repositories    | `/api/repos`      | Code repository management |
-| Build Templates | `/api/build-templates` | Jenkins Pipeline templates |
-| Deploy Templates| `/api/deploy-templates` | K8s/Docker/Linux templates |
-| K8s Clusters   | `/api/k8s/clusters`| Cluster configuration    |
-| Linux Servers   | `/api/servers`    | Host configuration         |
-| Jenkins Platform| `/api/jenkins-platforms` | Multiple Jenkins instances |
-| Git Platform    | `/api/git-platforms` | Multiple Git sources    |
-| Image Registries| `/api/image-repositories` | Multiple registries |
-| Environments    | `/api/environments`| Environment management    |
-| Languages       | `/api/languages`  | Language management        |
+```bash
+kubectl get secret $SECRET_NAME -o jsonpath='{.data.ca\.crt}'
+```
 
-## 🤝 Contribution Guidelines
+---
 
-Welcome contributions. Before submitting a Pull Request, please ensure:
+## 🔧 Development Guide
 
-- Code is formatted with `go fmt`
-- New API endpoints have Swagger annotations and `swag init` has been re-run
+### Local Development
+
+```bash
+# Install dependencies
+go mod tidy
+
+# Run tests
+go test ./...
+
+# Format code
+go fmt ./...
+
+# Static analysis
+go vet ./...
+```
+
+### Generate Swagger Documentation
+
+```bash
+# Install swag
+go install github.com/swaggo/swag/cmd/swag@latest
+
+# Generate docs
+swag init -g main.go
+```
+
+### Adding New API
+
+1. Define data model in `internal/model/`
+2. Create Repository in `internal/handler/`
+3. Create Service in `internal/service/`
+4. Register routes in `internal/api/`
+5. Add Swagger annotations and run `swag init`
+
+### Code Standards
+
+- Follow [Go Code Review Comments](https://github.com/golang/go/wiki/CodeReviewComments)
+- Format code with `gofmt`
+- Add Swagger annotations for new API endpoints
+- Use `log.L().Error()` for error logging
+
+---
+
+## 📊 Monitoring & Operations
+
+### Log Locations
+
+| Log File | Description |
+|----------|-------------|
+| `logs/app.log` | Application logs |
+| `logs/error.log` | Error logs |
+
+### Health Checks
+
+```bash
+# HTTP health check
+curl http://localhost:4123/health
+
+# Database connection check
+curl http://localhost:4123/health/db
+```
+
+### Task Queue Monitoring
+
+Monitor task status via Asynq tools:
+
+```bash
+# Install asynqmon
+go install github.com/hibiken/asynq/tools/asynqmon@latest
+
+# Start monitoring dashboard
+asynqmon --redis-addr=127.0.0.1:6379
+```
+
+---
+
+## ❓ FAQ
+
+<details>
+<summary><b>Q: How to run without Nacos?</b></summary>
+
+Do not set the `NACOS_SERVER_ADDR` environment variable. The service will automatically skip Nacos integration and use local configuration files and environment variables only.
+
+</details>
+
+<details>
+<summary><b>Q: How to troubleshoot failed deployment tasks?</b></summary>
+
+1. Check task details: `GET /api/deploys/:id`
+2. Check stage history: `GET /api/deploys/:id/stages`
+3. Check Jenkins console output: `GET /api/deploys/:id/console`
+4. Check application logs: `logs/app.log`
+
+</details>
+
+<details>
+<summary><b>Q: How to support multiple Git platforms?</b></summary>
+
+Configure multiple Git platforms through the `GitPlatform` model. Each platform independently manages its token and URL. Select the corresponding Git platform when creating an application.
+
+</details>
+
+<details>
+<summary><b>Q: How are Jenkins credentials managed?</b></summary>
+
+Two modes are supported:
+- **auto_create**: System automatically creates Jenkins credentials
+- **manual_select**: Manually select existing Jenkins credentials
+
+Credentials are injected via Jenkins Groovy Script Console.
+
+</details>
+
+<details>
+<summary><b>Q: How to add a new image registry type?</b></summary>
+
+1. Implement the `RegistryClient` interface in `internal/core/`
+2. Add a new factory method in `registry_factory.go`
+3. Add the new `RegistryType` in `internal/model/imageRepoModel.go`
+
+</details>
+
+---
+
+## 🗺️ Roadmap
+
+- [ ] Support direct GitLab CI/CD triggering
+- [ ] GitHub Actions integration
+- [ ] Deployment rollback functionality
+- [ ] Multi-environment configuration comparison
+- [ ] Deployment approval workflow
+- [ ] Prometheus metrics export
+- [ ] Grafana monitoring dashboard
+
+---
+
+## 🤝 Contributing
+
+Pull requests are welcome!
+
+### Contribution Process
+
+1. Fork the repository
+2. Create a feature branch (`git checkout -b feature/amazing-feature`)
+3. Commit changes (`git commit -m 'Add some amazing feature'`)
+4. Push to branch (`git push origin feature/amazing-feature`)
+5. Submit a Pull Request
+
+### Code Requirements
+
+- Code formatted with `go fmt`
+- New API endpoints have Swagger annotations updated
 - Key business logic has unit test coverage
 
-Please file issues at [Issues](https://github.com/ZebraOps/ZebraCICD/issues).
-
-## 💬 Contact
-
-- Email: iamnumachen@gmail.com
-- GitHub Issue: [Submit an issue](https://github.com/ZebraOps/ZebraCICD/issues/new)
+---
 
 ## 📄 License
 
-[MIT](LICENSE)
+This project is licensed under the [MIT](LICENSE) License.
+
+---
+
+## 📬 Contact
+
+- 📧 Email: iamnumachen@gmail.com
+- 🐛 Issues: [GitHub Issues](https://github.com/ZebraOps/ZebraCICD/issues)
+
+---
+
+<div align="center">
+  <sub>Built with ❤️ by ZebraOps Team</sub>
+</div>

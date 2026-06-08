@@ -38,4 +38,8 @@ type DeployTask struct {
 	JenkinsBuildNumber int    `gorm:"comment:Jenkins构建编号" json:"jenkins_build_number,omitempty"`
 	ErrorMessage       string `gorm:"type:text;comment:错误信息" json:"error_message,omitempty"`
 	RetryCount         int    `gorm:"default:0;comment:重试次数" json:"retry_count"`
+
+	// 回滚相关字段
+	IsRollback   bool `gorm:"default:false;comment:是否为回滚任务" json:"is_rollback"`
+	RollbackFrom uint `gorm:"comment:回滚源任务ID" json:"rollback_from,omitempty"`
 }

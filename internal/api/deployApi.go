@@ -367,6 +367,97 @@ func getTaskStagesHandler(c *gin.Context, svc *service.DeployService) {
 	types.Success(c, stages)
 }
 
+// getRollbackHistoryHandler 获取可回滚的历史部署任务列表
+// @Summary 获取可回滚的历史版本
+// @Description 获取与当前任务相同部署配置的历史成功版本列表
+// @Tags deploys
+// @Produce json
+// @Param id path int true "当前任务ID"
+// @Param page query int false "页码" default(1)
+// @Param size query int false "每页数量" default(10)
+// @Success 200 {object} types.Response
+// @Failure 400 {object} types.Response
+// @Failure 500 {object} types.Response
+// @Router /api/deploys/{id}/rollback-history [get]
+func getRollbackHistoryHandler(c *gin.Context, svc *service.DeployService) {
+	idStr := c.Param("id")
+	id, err := strconv.Atoi(idStr)
+	if err != nil {
+		types.Error(c, http.StatusBadRequest, "invalid id format")
+		return
+	}
+
+	page := 1
+	size := 10
+	if pageStr := c.Query("page"); pageStr != "" {
+		if p, err := strconv.Atoi(pageStr); err == nil && p > 0 {
+			page = p
+		}
+	}
+	if sizeStr := c.Query("size"); sizeStr != "" {
+		if s, err := strconv.Atoi(sizeStr); err == nil && s > 0 {
+			size = s
+		}
+	}
+
+	tasks, total, err := svc.GetRollbackHistory(uint(id), page, size)
+	if err != nil {
+		types.Error(c, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	types.PageSuccess(c, total, tasks)
+}
+
+// rollbackDeployRequest 回滚请求体
+type rollbackDeployRequest struct {
+	HistoryTaskID uint `json:"history_task_id" binding:"required"`
+}
+
+// rollbackDeployHandler 执行部署回滚
+// @Summary 执行部署回滚
+// @Description 基于历史任务创建新的回滚任务，使用历史镜像版本重新部署
+// @Tags deploys
+// @Accept json
+// @Produce json
+// @Param id path int true "当前任务ID"
+// @Param request body rollbackDeployRequest true "回滚参数"
+// @Success 200 {object} types.Response
+// @Failure 400 {object} types.Response
+// @Failure 500 {object} types.Response
+// @Router /api/deploys/{id}/rollback [post]
+func rollbackDeployHandler(c *gin.Context, svc *service.DeployService) {
+	idStr := c.Param("id")
+	currentTaskID, err := strconv.Atoi(idStr)
+	if err != nil {
+		types.Error(c, http.StatusBadRequest, "invalid id format")
+		return
+	}
+
+	var req rollbackDeployRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		types.Error(c, http.StatusBadRequest, "history_task_id is required")
+		return
+	}
+
+	newTask, err := svc.RollbackDeployment(uint(currentTaskID), req.HistoryTaskID)
+	if err != nil {
+		if strings.Contains(err.Error(), "不存在") || strings.Contains(err.Error(), "不匹配") || strings.Contains(err.Error(), "只能回滚") {
+			types.Error(c, http.StatusBadRequest, err.Error())
+		} else {
+			types.Error(c, http.StatusInternalServerError, err.Error())
+		}
+		return
+	}
+
+	types.Success(c, gin.H{
+		"task_id":       newTask.ID,
+		"image_tag":     newTask.ImageTag,
+		"is_rollback":   newTask.IsRollback,
+		"rollback_from": newTask.RollbackFrom,
+	})
+}
+
 func RegisterDeployRoutes(r *gin.Engine, svc *service.DeployService) {
 	g := r.Group("/api/deploys")
 	{
@@ -393,6 +484,14 @@ func RegisterDeployRoutes(r *gin.Engine, svc *service.DeployService) {
 		// retry failed deploy task
 		g.POST("/:id/retry", func(c *gin.Context) {
 			retryDeployTaskHandler(c, svc)
+		})
+
+		// 回滚相关
+		g.GET("/:id/rollback-history", func(c *gin.Context) {
+			getRollbackHistoryHandler(c, svc)
+		})
+		g.POST("/:id/rollback", func(c *gin.Context) {
+			rollbackDeployHandler(c, svc)
 		})
 
 		g.GET("/:id", func(c *gin.Context) {

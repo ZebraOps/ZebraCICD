@@ -255,6 +255,11 @@ func (s *DeployService) ProcessDeploymentTask(ctx context.Context, taskID uint) 
 		return nil
 	}
 
+	// 检查是否为回滚任务：跳过构建，直接部署
+	if task.IsRollback {
+		return s.ProcessRollbackTask(ctx, taskID)
+	}
+
 	// --- PENDING stage: record that the task has started processing ---
 	s.startStage(taskID, "PENDING", task.RetryCount)
 	s.finishStage(taskID, "PENDING", "success", "")
@@ -1662,4 +1667,171 @@ func escapeXMLContent(content string) string {
 		"]]>", "]]]]><![CDATA[>",
 	)
 	return replacer.Replace(content)
+}
+
+// GetRollbackHistory 获取可回滚的历史部署任务
+// 查找同一 deployment_name + env_id + deploy_target 的成功历史任务
+func (s *DeployService) GetRollbackHistory(taskID uint, page, size int) ([]model.DeployTask, int64, error) {
+	// 1. 获取当前任务信息
+	var currentTask model.DeployTask
+	if err := s.db.First(&currentTask, taskID).Error; err != nil {
+		return nil, 0, fmt.Errorf("任务不存在: %v", err)
+	}
+
+	// 2. 构建查询条件：同 deployment_name + env_id + deploy_target，状态为 SUCCESS，排除当前任务
+	query := s.db.Model(&model.DeployTask{}).
+		Where("deployment_name = ?", currentTask.DeploymentName).
+		Where("env_id = ?", currentTask.EnvID).
+		Where("deploy_target = ?", currentTask.DeployTarget).
+		Where("status = ?", "SUCCESS").
+		Where("id != ?", taskID).
+		Where("is_rollback = ?", false) // 排除回滚任务，只显示正常部署的历史
+
+	// 3. 分页查询
+	var total int64
+	if err := query.Count(&total).Error; err != nil {
+		return nil, 0, fmt.Errorf("统计历史任务失败: %v", err)
+	}
+
+	var tasks []model.DeployTask
+	offset := (page - 1) * size
+	if err := query.Order("id DESC").Offset(offset).Limit(size).Find(&tasks).Error; err != nil {
+		return nil, 0, fmt.Errorf("查询历史任务失败: %v", err)
+	}
+
+	return tasks, total, nil
+}
+
+// RollbackDeployment 执行部署回滚
+// 基于历史任务创建新的部署任务，使用相同的 ImageTag，跳过构建阶段
+func (s *DeployService) RollbackDeployment(currentTaskID, historyTaskID uint) (*model.DeployTask, error) {
+	// 1. 获取当前任务和历史任务
+	var currentTask, historyTask model.DeployTask
+	if err := s.db.First(&currentTask, currentTaskID).Error; err != nil {
+		return nil, fmt.Errorf("当前任务不存在: %v", err)
+	}
+	if err := s.db.First(&historyTask, historyTaskID).Error; err != nil {
+		return nil, fmt.Errorf("历史任务不存在: %v", err)
+	}
+
+	// 2. 验证历史任务
+	if historyTask.Status != "SUCCESS" {
+		return nil, fmt.Errorf("只能回滚到成功的部署任务，历史任务状态: %s", historyTask.Status)
+	}
+	if historyTask.DeploymentName != currentTask.DeploymentName {
+		return nil, fmt.Errorf("部署名称不匹配: 当前=%s, 历史=%s", currentTask.DeploymentName, historyTask.DeploymentName)
+	}
+	if historyTask.EnvID != currentTask.EnvID {
+		return nil, fmt.Errorf("环境ID不匹配: 当前=%d, 历史=%d", currentTask.EnvID, historyTask.EnvID)
+	}
+	if historyTask.DeployTarget != currentTask.DeployTarget {
+		return nil, fmt.Errorf("部署目标不匹配: 当前=%s, 历史=%s", currentTask.DeployTarget, historyTask.DeployTarget)
+	}
+
+	// 3. 验证镜像在仓库中仍然存在
+	client := s.getRegistryClientForTask(&historyTask)
+	if !client.VerifyImageExists(historyTask.RegistryProject, historyTask.ImageName, historyTask.ImageTag) {
+		return nil, fmt.Errorf("历史镜像不存在: %s/%s:%s", historyTask.RegistryProject, historyTask.ImageName, historyTask.ImageTag)
+	}
+
+	// 4. 创建新的回滚任务
+	now := time.Now()
+	newTask := &model.DeployTask{
+		ProjectID:            historyTask.ProjectID,
+		EnvID:                historyTask.EnvID,
+		GitRef:               historyTask.GitRef,
+		ImageTag:             historyTask.ImageTag, // 关键：使用历史镜像版本
+		Status:               "PENDING",
+		K8sClusterID:         historyTask.K8sClusterID,
+		K8sNamespace:         historyTask.K8sNamespace,
+		JenkinsJobName:       historyTask.JenkinsJobName,
+		RegistryProject:      historyTask.RegistryProject,
+		ImageName:            historyTask.ImageName,
+		DeploymentName:       historyTask.DeploymentName,
+		BuildTemplateID:      historyTask.BuildTemplateID,
+		DeploymentTemplateID: historyTask.DeploymentTemplateID,
+		DeployType:           historyTask.DeployType,
+		DeployTarget:         historyTask.DeployTarget,
+		ServerID:             historyTask.ServerID,
+		DeployPath:           historyTask.DeployPath,
+		IsRollback:           true,
+		RollbackFrom:         historyTaskID,
+		CreatedAt:            now,
+		UpdatedAt:            now,
+	}
+
+	if err := s.db.Create(newTask).Error; err != nil {
+		return nil, fmt.Errorf("创建回滚任务失败: %v", err)
+	}
+
+	log.S().Infof("Created rollback task %d from history task %d (image_tag=%s)", newTask.ID, historyTaskID, newTask.ImageTag)
+
+	// 5. 入队执行（会调用 ProcessDeploymentTask）
+	if err := s.queueClient.EnqueueDeployTask(newTask.ID); err != nil {
+		// 回滚任务创建失败，删除任务记录
+		s.db.Delete(&model.DeployTask{}, newTask.ID)
+		return nil, fmt.Errorf("回滚任务入队失败: %v", err)
+	}
+
+	return newTask, nil
+}
+
+// ProcessRollbackTask 处理回滚任务的部署流程（跳过 BUILDING 和 PUSHING 阶段）
+func (s *DeployService) ProcessRollbackTask(ctx context.Context, taskID uint) error {
+	var task model.DeployTask
+	if err := s.db.First(&task, taskID).Error; err != nil {
+		return fmt.Errorf("load task %d: %w", taskID, err)
+	}
+
+	// 幂等保护
+	if task.Status == "SUCCESS" {
+		return nil
+	}
+
+	// 记录 PENDING 阶段
+	s.startStage(taskID, "PENDING", 0)
+	s.finishStage(taskID, "PENDING", "success", "")
+
+	// 跳过 BUILDING，直接标记为成功
+	s.startStage(taskID, "BUILDING", 0)
+	s.updateTaskStatus(taskID, "BUILDING", "回滚任务跳过构建", "")
+	s.finishStage(taskID, "BUILDING", "success", "")
+
+	// 跳过 PUSHING，直接标记为成功
+	s.startStage(taskID, "PUSHING", 0)
+	s.updateTaskStatus(taskID, "PUSHING", "回滚任务跳过推送验证", "")
+	s.finishStage(taskID, "PUSHING", "success", "")
+
+	// 直接进入 DEPLOYING 阶段
+	s.startStage(taskID, "DEPLOYING", 0)
+	deployTarget := task.DeployTarget
+	if deployTarget == "" {
+		deployTarget = task.DeployType // 兼容旧数据
+	}
+
+	var deployErr error
+	switch deployTarget {
+	case "docker":
+		s.updateTaskStatus(taskID, "DEPLOYING", "开始回滚部署到Linux主机(Docker)", "")
+		deployErr = s.deployToDocker(&task)
+	case "k8s":
+		s.updateTaskStatus(taskID, "DEPLOYING", "开始回滚部署到K8s集群", "")
+		deployErr = s.deployToK8s(&task)
+	case "linux":
+		s.updateTaskStatus(taskID, "DEPLOYING", "开始回滚部署到Linux主机(文件提取+Nginx)", "")
+		deployErr = s.deployToLinux(&task)
+	default:
+		deployErr = fmt.Errorf("未知的部署目标: %s", deployTarget)
+	}
+
+	if deployErr != nil {
+		s.finishStage(taskID, "DEPLOYING", "failed", deployErr.Error())
+		s.updateTaskStatus(taskID, "FAILED", fmt.Sprintf("回滚部署失败: %v", deployErr), deployErr.Error())
+		return deployErr
+	}
+
+	s.finishStage(taskID, "DEPLOYING", "success", "")
+	s.updateTaskStatus(taskID, "SUCCESS", "回滚部署成功完成", "")
+	log.S().Infof("Rollback task %d completed successfully (image_tag=%s)", taskID, task.ImageTag)
+	return nil
 }
