@@ -458,6 +458,176 @@ func rollbackDeployHandler(c *gin.Context, svc *service.DeployService) {
 	})
 }
 
+// triggerBuildHandler 手动触发构建
+// @Summary 手动触发构建
+// @Description 触发手动执行模式任务的构建阶段
+// @Tags deploys
+// @Produce json
+// @Param id path int true "任务ID"
+// @Success 200 {object} types.Response
+// @Failure 400 {object} types.Response
+// @Failure 500 {object} types.Response
+// @Router /api/deploys/{id}/trigger-build [post]
+func triggerBuildHandler(c *gin.Context, svc *service.DeployService) {
+	idStr := c.Param("id")
+	id, err := strconv.Atoi(idStr)
+	if err != nil {
+		types.Error(c, http.StatusBadRequest, "invalid id format")
+		return
+	}
+
+	task, err := svc.TriggerBuild(uint(id))
+	if err != nil {
+		if strings.Contains(err.Error(), "只有手动") || strings.Contains(err.Error(), "状态") {
+			types.Error(c, http.StatusBadRequest, err.Error())
+		} else {
+			types.Error(c, http.StatusInternalServerError, err.Error())
+		}
+		return
+	}
+
+	types.Success(c, gin.H{
+		"task_id":     task.ID,
+		"status":      task.Status,
+		"build_status": task.BuildStatus,
+		"image_tag":   task.ImageTag,
+	})
+}
+
+// triggerDeployHandler 手动触发部署
+// @Summary 手动触发部署
+// @Description 触发手动执行模式任务的部署阶段（构建需已完成）
+// @Tags deploys
+// @Produce json
+// @Param id path int true "任务ID"
+// @Success 200 {object} types.Response
+// @Failure 400 {object} types.Response
+// @Failure 500 {object} types.Response
+// @Router /api/deploys/{id}/trigger-deploy [post]
+func triggerDeployHandler(c *gin.Context, svc *service.DeployService) {
+	idStr := c.Param("id")
+	id, err := strconv.Atoi(idStr)
+	if err != nil {
+		types.Error(c, http.StatusBadRequest, "invalid id format")
+		return
+	}
+
+	task, err := svc.TriggerDeploy(uint(id))
+	if err != nil {
+		if strings.Contains(err.Error(), "只有手动") || strings.Contains(err.Error(), "尚未完成") || strings.Contains(err.Error(), "状态") {
+			types.Error(c, http.StatusBadRequest, err.Error())
+		} else {
+			types.Error(c, http.StatusInternalServerError, err.Error())
+		}
+		return
+	}
+
+	types.Success(c, gin.H{
+		"task_id":      task.ID,
+		"status":       task.Status,
+		"deploy_status": task.DeployStatus,
+	})
+}
+
+// triggerAllHandler 一键执行构建+部署
+// @Summary 一键执行构建和部署
+// @Description 一键触发手动执行模式任务的构建和部署
+// @Tags deploys
+// @Produce json
+// @Param id path int true "任务ID"
+// @Success 200 {object} types.Response
+// @Failure 400 {object} types.Response
+// @Failure 500 {object} types.Response
+// @Router /api/deploys/{id}/trigger [post]
+func triggerAllHandler(c *gin.Context, svc *service.DeployService) {
+	idStr := c.Param("id")
+	id, err := strconv.Atoi(idStr)
+	if err != nil {
+		types.Error(c, http.StatusBadRequest, "invalid id format")
+		return
+	}
+
+	task, err := svc.TriggerAll(uint(id))
+	if err != nil {
+		if strings.Contains(err.Error(), "只有手动") || strings.Contains(err.Error(), "状态") {
+			types.Error(c, http.StatusBadRequest, err.Error())
+		} else {
+			types.Error(c, http.StatusInternalServerError, err.Error())
+		}
+		return
+	}
+
+	types.Success(c, gin.H{
+		"task_id":      task.ID,
+		"status":       task.Status,
+		"build_status": task.BuildStatus,
+		"deploy_status": task.DeployStatus,
+	})
+}
+
+// cancelScheduleHandler 取消定时任务
+// @Summary 取消定时任务
+// @Description 取消计划执行的定时任务
+// @Tags deploys
+// @Produce json
+// @Param id path int true "任务ID"
+// @Success 200 {object} types.Response
+// @Failure 400 {object} types.Response
+// @Failure 500 {object} types.Response
+// @Router /api/deploys/{id}/cancel-schedule [delete]
+func cancelScheduleHandler(c *gin.Context, svc *service.DeployService) {
+	idStr := c.Param("id")
+	id, err := strconv.Atoi(idStr)
+	if err != nil {
+		types.Error(c, http.StatusBadRequest, "invalid id format")
+		return
+	}
+
+	if err := svc.CancelScheduledTask(uint(id)); err != nil {
+		if strings.Contains(err.Error(), "只有 SCHEDULED") {
+			types.Error(c, http.StatusBadRequest, err.Error())
+		} else {
+			types.Error(c, http.StatusInternalServerError, err.Error())
+		}
+		return
+	}
+
+	types.Success(c, gin.H{"message": "scheduled task cancelled"})
+}
+
+// listScheduledTasksHandler 获取定时任务列表
+// @Summary 获取定时任务列表
+// @Description 获取待执行的定时任务列表
+// @Tags deploys
+// @Produce json
+// @Param page query int false "页码" default(1)
+// @Param size query int false "每页数量" default(20)
+// @Success 200 {object} types.Response
+// @Failure 500 {object} types.Response
+// @Router /api/deploys/scheduled [get]
+func listScheduledTasksHandler(c *gin.Context, svc *service.DeployService) {
+	page := 1
+	size := 20
+	if pageStr := c.Query("page"); pageStr != "" {
+		if p, err := strconv.Atoi(pageStr); err == nil && p > 0 {
+			page = p
+		}
+	}
+	if sizeStr := c.Query("size"); sizeStr != "" {
+		if s, err := strconv.Atoi(sizeStr); err == nil && s > 0 {
+			size = s
+		}
+	}
+
+	tasks, total, err := svc.ListScheduledTasks(page, size)
+	if err != nil {
+		types.Error(c, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	types.PageSuccess(c, total, tasks)
+}
+
 func RegisterDeployRoutes(r *gin.Engine, svc *service.DeployService) {
 	g := r.Group("/api/deploys")
 	{
@@ -492,6 +662,25 @@ func RegisterDeployRoutes(r *gin.Engine, svc *service.DeployService) {
 		})
 		g.POST("/:id/rollback", func(c *gin.Context) {
 			rollbackDeployHandler(c, svc)
+		})
+
+		// 手动触发相关
+		g.POST("/:id/trigger-build", func(c *gin.Context) {
+			triggerBuildHandler(c, svc)
+		})
+		g.POST("/:id/trigger-deploy", func(c *gin.Context) {
+			triggerDeployHandler(c, svc)
+		})
+		g.POST("/:id/trigger", func(c *gin.Context) {
+			triggerAllHandler(c, svc)
+		})
+		g.DELETE("/:id/cancel-schedule", func(c *gin.Context) {
+			cancelScheduleHandler(c, svc)
+		})
+
+		// 定时任务列表
+		g.GET("/scheduled", func(c *gin.Context) {
+			listScheduledTasksHandler(c, svc)
 		})
 
 		g.GET("/:id", func(c *gin.Context) {

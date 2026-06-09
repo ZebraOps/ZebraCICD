@@ -160,11 +160,40 @@ func (s *DeployService) updateStageLogSummary(taskID uint, stage string, summary
 }
 
 func (s *DeployService) CreateTask(t *model.DeployTask) error {
-	t.Status = "PENDING"
-	t.ImageTag = time.Now().Format("20060102150405")
+	// 设置默认执行模式
+	if t.ExecutionMode == "" {
+		t.ExecutionMode = "auto"
+	}
+	if t.ScheduleType == "" {
+		t.ScheduleType = "immediate"
+	}
+	if t.BuildStatus == "" {
+		t.BuildStatus = "pending"
+	}
+	if t.DeployStatus == "" {
+		t.DeployStatus = "pending"
+	}
+
+	// 根据执行模式设置状态和镜像标签
+	switch t.ExecutionMode {
+	case "auto":
+		switch t.ScheduleType {
+		case "immediate":
+			t.Status = "PENDING"
+			t.ImageTag = time.Now().Format("20060102150405")
+		case "scheduled":
+			t.Status = "SCHEDULED"
+			t.ImageTag = time.Now().Format("20060102150405") // 先生成，执行时更新
+		}
+	case "manual":
+		t.Status = "CREATED"
+		t.ImageTag = "" // 手动执行时不生成，触发构建时生成
+		t.BuildStatus = "ready"   // 可执行构建
+		t.DeployStatus = "pending" // 等待构建完成
+	}
 
 	// 自动生成部署名时仅使用应用英文名，不再拼接 ID。
-	// 同时兼容旧前端传入的“英文名-ID”默认值并归一为“英文名”。
+	// 同时兼容旧前端传入的"英文名-ID"默认值并归一为"英文名"。
 	var app model.Application
 	if err := s.db.First(&app, t.ProjectID).Error; err == nil {
 		legacyByID := fmt.Sprintf("app-%d", t.ProjectID)
@@ -193,7 +222,21 @@ func (s *DeployService) CreateTask(t *model.DeployTask) error {
 		return err
 	}
 
-	return s.queueClient.EnqueueDeployTask(t.ID)
+	// 根据执行模式入队
+	switch t.ExecutionMode {
+	case "auto":
+		switch t.ScheduleType {
+		case "immediate":
+			return s.queueClient.EnqueueDeployTask(t.ID)
+		case "scheduled":
+			return s.queueClient.EnqueueDeployTaskAt(t.ID, t.ScheduledAt)
+		}
+	case "manual":
+		// 手动执行模式不入队，等待用户触发
+		log.S().Infof("Manual task %d created, waiting for trigger", t.ID)
+	}
+
+	return nil
 }
 
 // RetryTask 重试一个失败的部署任务：将状态重置为 PENDING，清空执行字段，递增 retry_count，
@@ -1834,4 +1877,299 @@ func (s *DeployService) ProcessRollbackTask(ctx context.Context, taskID uint) er
 	s.updateTaskStatus(taskID, "SUCCESS", "回滚部署成功完成", "")
 	log.S().Infof("Rollback task %d completed successfully (image_tag=%s)", taskID, task.ImageTag)
 	return nil
+}
+
+// TriggerBuild 手动触发构建阶段
+func (s *DeployService) TriggerBuild(taskID uint) (*model.DeployTask, error) {
+	var task model.DeployTask
+	if err := s.db.First(&task, taskID).Error; err != nil {
+		return nil, fmt.Errorf("任务不存在: %v", err)
+	}
+
+	// 验证执行模式和状态
+	if task.ExecutionMode != "manual" {
+		return nil, fmt.Errorf("只有手动执行模式的任务才能触发构建")
+	}
+	if task.BuildStatus != "ready" {
+		return nil, fmt.Errorf("当前构建状态为 %s，无法执行构建", task.BuildStatus)
+	}
+
+	// 生成镜像标签
+	now := time.Now()
+	imageTag := now.Format("20060102150405")
+
+	// 更新状态
+	updates := map[string]interface{}{
+		"status":        "BUILDING",
+		"build_status":  "executing",
+		"image_tag":     imageTag,
+		"started_at":    now,
+		"updated_at":    now,
+	}
+	if err := s.db.Model(&model.DeployTask{}).Where("id = ?", taskID).Updates(updates).Error; err != nil {
+		return nil, fmt.Errorf("更新任务状态失败: %v", err)
+	}
+
+	// 重新加载任务
+	s.db.First(&task, taskID)
+
+	// 记录阶段历史
+	s.startStage(taskID, "BUILDING", 0)
+	log.S().Infof("Manual build triggered for task %d, image_tag=%s", taskID, imageTag)
+
+	// 入队构建任务
+	if err := s.queueClient.EnqueueBuildTask(taskID); err != nil {
+		// 回滚状态
+		s.db.Model(&model.DeployTask{}).Where("id = ?", taskID).Updates(map[string]interface{}{
+			"status":       "CREATED",
+			"build_status": "ready",
+		})
+		return nil, fmt.Errorf("构建任务入队失败: %v", err)
+	}
+
+	return &task, nil
+}
+
+// TriggerDeploy 手动触发部署阶段（仅执行部署，构建已完成）
+func (s *DeployService) TriggerDeploy(taskID uint) (*model.DeployTask, error) {
+	var task model.DeployTask
+	if err := s.db.First(&task, taskID).Error; err != nil {
+		return nil, fmt.Errorf("任务不存在: %v", err)
+	}
+
+	// 验证执行模式和状态
+	if task.ExecutionMode != "manual" {
+		return nil, fmt.Errorf("只有手动执行模式的任务才能触发部署")
+	}
+	if task.BuildStatus != "done" {
+		return nil, fmt.Errorf("构建尚未完成，当前构建状态: %s", task.BuildStatus)
+	}
+	if task.DeployStatus != "ready" {
+		return nil, fmt.Errorf("当前部署状态为 %s，无法执行部署", task.DeployStatus)
+	}
+
+	// 更新状态
+	now := time.Now()
+	updates := map[string]interface{}{
+		"status":        "DEPLOYING",
+		"deploy_status": "executing",
+		"updated_at":    now,
+	}
+	if err := s.db.Model(&model.DeployTask{}).Where("id = ?", taskID).Updates(updates).Error; err != nil {
+		return nil, fmt.Errorf("更新任务状态失败: %v", err)
+	}
+
+	// 重新加载任务
+	s.db.First(&task, taskID)
+
+	// 记录阶段历史
+	s.startStage(taskID, "DEPLOYING", 0)
+	log.S().Infof("Manual deploy triggered for task %d, image_tag=%s", taskID, task.ImageTag)
+
+	// 入队部署任务
+	if err := s.queueClient.EnqueueDeployOnlyTask(taskID); err != nil {
+		// 回滚状态
+		s.db.Model(&model.DeployTask{}).Where("id = ?", taskID).Updates(map[string]interface{}{
+			"status":       "BUILDING",
+			"deploy_status": "ready",
+		})
+		return nil, fmt.Errorf("部署任务入队失败: %v", err)
+	}
+
+	return &task, nil
+}
+
+// TriggerAll 一键执行构建和部署
+func (s *DeployService) TriggerAll(taskID uint) (*model.DeployTask, error) {
+	var task model.DeployTask
+	if err := s.db.First(&task, taskID).Error; err != nil {
+		return nil, fmt.Errorf("任务不存在: %v", err)
+	}
+
+	// 验证执行模式
+	if task.ExecutionMode != "manual" {
+		return nil, fmt.Errorf("只有手动执行模式的任务才能触发执行")
+	}
+
+	// 如果构建未完成，先触发构建
+	if task.BuildStatus == "ready" {
+		if _, err := s.TriggerBuild(taskID); err != nil {
+			return nil, err
+		}
+		// 构建完成后会自动触发部署（在 ProcessBuildTask 中）
+		s.db.First(&task, taskID)
+		return &task, nil
+	}
+
+	// 如果构建已完成，直接触发部署
+	if task.BuildStatus == "done" && task.DeployStatus == "ready" {
+		return s.TriggerDeploy(taskID)
+	}
+
+	return nil, fmt.Errorf("当前状态不支持一键执行: build_status=%s, deploy_status=%s", task.BuildStatus, task.DeployStatus)
+}
+
+// ProcessBuildTask 处理仅构建任务（手动执行模式的构建阶段）
+func (s *DeployService) ProcessBuildTask(ctx context.Context, taskID uint) error {
+	var task model.DeployTask
+	if err := s.db.First(&task, taskID).Error; err != nil {
+		return fmt.Errorf("load task %d: %w", taskID, err)
+	}
+
+	// 幂等保护
+	if task.BuildStatus == "done" {
+		return nil
+	}
+
+	log.S().Infof("Processing build task %d (manual mode)", taskID)
+
+	// 触发 Jenkins 构建
+	buildResult, jenkinsClient, err := s.triggerJenkinsBuild(&task)
+	if err != nil {
+		s.finishStage(taskID, "BUILDING", "failed", err.Error())
+		s.db.Model(&model.DeployTask{}).Where("id = ?", taskID).Updates(map[string]interface{}{
+			"status":        "FAILED",
+			"build_status":  "failed",
+			"error_message": err.Error(),
+		})
+		return err
+	}
+
+	// 保存 Jenkins 构建编号
+	s.db.Model(&model.DeployTask{}).Where("id = ?", taskID).Update("jenkins_build_number", buildResult.BuildNumber)
+
+	// 等待构建完成
+	if !s.waitForJenkinsBuild(ctx, jenkinsClient, buildResult.JobName, buildResult.BuildNumber) {
+		errMsg := "Jenkins构建失败或超时"
+		s.finishStage(taskID, "BUILDING", "failed", errMsg)
+		s.db.Model(&model.DeployTask{}).Where("id = ?", taskID).Updates(map[string]interface{}{
+			"status":        "FAILED",
+			"build_status":  "failed",
+			"error_message": errMsg,
+		})
+		return fmt.Errorf("jenkins build failed: %s", errMsg)
+	}
+
+	// 验证镜像推送
+	if !s.verifyImageInRegistryForTask(&task) {
+		errMsg := "镜像验证失败"
+		s.finishStage(taskID, "PUSHING", "failed", errMsg)
+		s.db.Model(&model.DeployTask{}).Where("id = ?", taskID).Updates(map[string]interface{}{
+			"status":        "FAILED",
+			"build_status":  "failed",
+			"error_message": errMsg,
+		})
+		return fmt.Errorf("image verification failed")
+	}
+
+	// 构建完成
+	now := time.Now()
+	s.finishStage(taskID, "BUILDING", "success", "")
+	s.db.Model(&model.DeployTask{}).Where("id = ?", taskID).Updates(map[string]interface{}{
+		"status":          "BUILDING", // 保持构建状态，等待部署触发
+		"build_status":    "done",
+		"deploy_status":   "ready",
+		"build_finished_at": now,
+	})
+
+	log.S().Infof("Build task %d completed successfully", taskID)
+	return nil
+}
+
+// ProcessDeployOnlyTask 处理仅部署任务（手动执行模式的部署阶段）
+func (s *DeployService) ProcessDeployOnlyTask(ctx context.Context, taskID uint) error {
+	var task model.DeployTask
+	if err := s.db.First(&task, taskID).Error; err != nil {
+		return fmt.Errorf("load task %d: %w", taskID, err)
+	}
+
+	// 幂等保护
+	if task.DeployStatus == "done" {
+		return nil
+	}
+
+	log.S().Infof("Processing deploy-only task %d (manual mode)", taskID)
+
+	// 执行部署
+	deployTarget := task.DeployTarget
+	if deployTarget == "" {
+		deployTarget = task.DeployType
+	}
+
+	var deployErr error
+	switch deployTarget {
+	case "docker":
+		deployErr = s.deployToDocker(&task)
+	case "k8s":
+		deployErr = s.deployToK8s(&task)
+	case "linux":
+		deployErr = s.deployToLinux(&task)
+	default:
+		deployErr = fmt.Errorf("未知的部署目标: %s", deployTarget)
+	}
+
+	now := time.Now()
+	if deployErr != nil {
+		s.finishStage(taskID, "DEPLOYING", "failed", deployErr.Error())
+		s.db.Model(&model.DeployTask{}).Where("id = ?", taskID).Updates(map[string]interface{}{
+			"status":        "FAILED",
+			"deploy_status": "failed",
+			"error_message": deployErr.Error(),
+			"finished_at":   now,
+		})
+		return deployErr
+	}
+
+	// 部署完成
+	s.finishStage(taskID, "DEPLOYING", "success", "")
+	s.db.Model(&model.DeployTask{}).Where("id = ?", taskID).Updates(map[string]interface{}{
+		"status":        "SUCCESS",
+		"deploy_status": "done",
+		"finished_at":   now,
+	})
+
+	log.S().Infof("Deploy-only task %d completed successfully", taskID)
+	return nil
+}
+
+// CancelScheduledTask 取消定时任务
+func (s *DeployService) CancelScheduledTask(taskID uint) error {
+	var task model.DeployTask
+	if err := s.db.First(&task, taskID).Error; err != nil {
+		return fmt.Errorf("任务不存在: %v", err)
+	}
+
+	if task.Status != "SCHEDULED" {
+		return fmt.Errorf("只有 SCHEDULED 状态的任务才能取消")
+	}
+
+	// 更新状态为取消
+	now := time.Now()
+	if err := s.db.Model(&model.DeployTask{}).Where("id = ?", taskID).Updates(map[string]interface{}{
+		"status":      "CANCELLED",
+		"finished_at": now,
+	}).Error; err != nil {
+		return fmt.Errorf("更新状态失败: %v", err)
+	}
+
+	log.S().Infof("Scheduled task %d cancelled", taskID)
+	return nil
+}
+
+// ListScheduledTasks 获取待执行的定时任务列表
+func (s *DeployService) ListScheduledTasks(page, size int) ([]model.DeployTask, int64, error) {
+	query := s.db.Model(&model.DeployTask{}).Where("status = ?", "SCHEDULED")
+
+	var total int64
+	if err := query.Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+
+	var tasks []model.DeployTask
+	offset := (page - 1) * size
+	if err := query.Order("scheduled_at ASC").Offset(offset).Limit(size).Find(&tasks).Error; err != nil {
+		return nil, 0, err
+	}
+
+	return tasks, total, nil
 }

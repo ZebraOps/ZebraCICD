@@ -42,4 +42,15 @@ type DeployTask struct {
 	// 回滚相关字段
 	IsRollback   bool `gorm:"default:false;comment:是否为回滚任务" json:"is_rollback"`
 	RollbackFrom uint `gorm:"comment:回滚源任务ID" json:"rollback_from,omitempty"`
+
+	// 执行方式相关字段
+	ExecutionMode string     `gorm:"size:20;default:'auto';comment:执行模式(auto/manual)" json:"execution_mode"`
+	ScheduleType  string     `gorm:"size:20;default:'immediate';comment:调度类型(immediate/scheduled)" json:"schedule_type"`
+	ScheduledAt   *time.Time `gorm:"comment:计划执行时间" json:"scheduled_at,omitempty"`
+
+	// 手动执行状态跟踪
+	BuildStatus     string     `gorm:"size:20;default:'pending';comment:构建状态(pending/ready/executing/done/failed)" json:"build_status"`
+	DeployStatus    string     `gorm:"size:20;default:'pending';comment:部署状态(pending/ready/executing/done/failed)" json:"deploy_status"`
+	BuildImageTag   string     `gorm:"size:255;comment:构建完成的镜像标签" json:"build_image_tag,omitempty"`
+	BuildFinishedAt *time.Time `gorm:"comment:构建完成时间" json:"build_finished_at,omitempty"`
 }

@@ -326,6 +326,8 @@ func main() {
 	deployWorker := worker.NewDeployWorker(deploySvc)
 	mux := asynq.NewServeMux()
 	mux.HandleFunc(queue.TypeDeployTask, deployWorker.HandleDeployTask)
+		mux.HandleFunc(queue.TypeBuildTask, deployWorker.HandleBuildTask)
+		mux.HandleFunc(queue.TypeDeployOnlyTask, deployWorker.HandleDeployOnlyTask)
 	if err := asynqSrv.Start(mux); err != nil {
 		log.S().Fatalf("failed to start asynq server: %v", err)
 	}
