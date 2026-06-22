@@ -32,6 +32,19 @@ func NewRepoService(
 }
 
 func (s *RepoService) CreateRepo(repo *model.Repo) error {
+	// 同一平台下名称唯一性检查
+	var existing model.Repo
+	if err := s.db.Where(
+		"(git_platform_id IS NOT DISTINCT FROM ?) AND (c_name = ? OR e_name = ?)",
+		repo.GitPlatformID, repo.CName, repo.EName,
+	).First(&existing).Error; err == nil {
+		if existing.CName == repo.CName {
+			return fmt.Errorf("该平台下中文名称 '%s' 已存在", repo.CName)
+		}
+		if existing.EName == repo.EName {
+			return fmt.Errorf("该平台下英文名称 '%s' 已存在", repo.EName)
+		}
+	}
 	return s.repoRepo.Create(repo)
 }
 
@@ -44,6 +57,19 @@ func (s *RepoService) ListRepos() ([]model.Repo, error) {
 }
 
 func (s *RepoService) UpdateRepo(repo *model.Repo) error {
+	// 同一平台下名称唯一性检查（排除自身）
+	var existing model.Repo
+	if err := s.db.Where(
+		"id != ? AND (git_platform_id IS NOT DISTINCT FROM ?) AND (c_name = ? OR e_name = ?)",
+		repo.ID, repo.GitPlatformID, repo.CName, repo.EName,
+	).First(&existing).Error; err == nil {
+		if existing.CName == repo.CName {
+			return fmt.Errorf("该平台下中文名称 '%s' 已被其他仓库使用", repo.CName)
+		}
+		if existing.EName == repo.EName {
+			return fmt.Errorf("该平台下英文名称 '%s' 已被其他仓库使用", repo.EName)
+		}
+	}
 	return s.repoRepo.Update(repo)
 }
 

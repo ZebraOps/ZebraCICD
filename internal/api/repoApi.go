@@ -128,6 +128,9 @@ func UpdateRepoHandler(c *gin.Context, svc *service.RepoService) {
 	if req.RepoBuildPath != "" {
 		existingRepo.RepoBuildPath = req.RepoBuildPath
 	}
+	if req.GitPlatformID != nil {
+		existingRepo.GitPlatformID = req.GitPlatformID
+	}
 	if err := svc.UpdateRepo(existingRepo); err != nil {
 		types.Error(c, http.StatusInternalServerError, err.Error())
 		return

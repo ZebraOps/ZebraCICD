@@ -177,6 +177,10 @@ func main() {
 		log.S().Fatalf("failed to connect db: %v", err)
 	}
 
+	// 迁移：移除旧的单列唯一索引，改为 (git_platform_id, name) 复合唯一索引
+	db.Exec("DROP INDEX IF EXISTS idx_repos_c_name")
+	db.Exec("DROP INDEX IF EXISTS idx_repos_e_name")
+
 	// Auto migrate models
 	if err := db.AutoMigrate(
 		&model.DeployTask{},

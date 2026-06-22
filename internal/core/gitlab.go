@@ -121,6 +121,13 @@ func TestGitPlatformConnectivity(platformURL, platformType, authType, authConfig
 
 	testURL := resolveTestURL(platformURL, platformType)
 
+	// Gitee 认证通过 URL 查询参数传递
+	if platformType == "gitee" {
+		if token := extractToken(authConfig); token != "" {
+			testURL = testURL + "?access_token=" + token
+		}
+	}
+
 	req, err := http.NewRequest("GET", testURL, nil)
 	if err != nil {
 		return fmt.Errorf("构造请求失败: %v", err)
@@ -166,6 +173,8 @@ func resolveTestURL(platformURL, platformType string) string {
 		return baseURL + "/api/v3/user"
 	case "gitea":
 		return baseURL + "/api/v1/user"
+	case "gitee":
+		return "https://gitee.com/api/v5/user"
 	default:
 		return baseURL + "/user"
 	}
@@ -190,6 +199,9 @@ func setAuthHeaders(req *http.Request, platformType, authType, authConfig string
 	switch platformType {
 	case "github":
 		req.Header.Set("Authorization", "Bearer "+token)
+	case "gitee":
+		// Gitee uses query parameter ?access_token=, not HTTP headers
+		return nil
 	default:
 		// GitLab / Gitea 使用 PRIVATE-TOKEN
 		req.Header.Set("PRIVATE-TOKEN", token)
@@ -218,6 +230,15 @@ func truncateString(s string, maxLen int) string {
 		return s
 	}
 	return s[:maxLen] + "..."
+}
+
+// extractToken 从 AuthConfig JSON 中提取 token
+func extractToken(authConfig string) string {
+	var config map[string]string
+	if err := json.Unmarshal([]byte(authConfig), &config); err != nil {
+		return ""
+	}
+	return config["token"]
 }
 
 // FetchPlatformProjects 从Git平台获取项目列表，支持搜索
@@ -251,6 +272,21 @@ func FetchPlatformProjects(platformURL, platformType, authType, authConfig, sear
 		apiURL = fmt.Sprintf("%s/api/v1/repos/search?limit=%d&page=%d", baseURL, size, page)
 		if search != "" {
 			apiURL += "&q=" + url.QueryEscape(search)
+		}
+	case "gitee":
+		// Gitee OpenAPI v5
+		apiBase := "https://gitee.com/api/v5"
+		if baseURL != "https://gitee.com" && baseURL != "http://gitee.com" {
+			apiBase = baseURL + "/api/v5"
+		}
+		if search != "" {
+			apiURL = fmt.Sprintf("%s/search/repositories?q=%s&page=%d&per_page=%d", apiBase, url.QueryEscape(search), page, size)
+		} else {
+			apiURL = fmt.Sprintf("%s/user/repos?page=%d&per_page=%d&type=all", apiBase, page, size)
+		}
+		// Gitee 认证通过 URL 查询参数
+		if token := extractToken(authConfig); token != "" {
+			apiURL = apiURL + "&access_token=" + token
 		}
 	default:
 		return nil, fmt.Errorf("unsupported platform type: %s", platformType)
@@ -364,6 +400,56 @@ func FetchPlatformProjects(platformURL, platformType, authType, authConfig, sear
 			}
 		}
 		return projects, nil
+
+	case "gitee":
+		if search != "" {
+			// Gitee search returns { items: [...] } same as GitHub
+			var result struct {
+				Items []struct {
+					FullName    string `json:"full_name"`
+					Name        string `json:"name"`
+					HTMLURL     string `json:"html_url"`
+					SSHURL      string `json:"ssh_url"`
+					Description string `json:"description"`
+				} `json:"items"`
+			}
+			if err := json.Unmarshal(body, &result); err != nil {
+				return nil, fmt.Errorf("解析Gitee搜索结果失败: %v", err)
+			}
+			projects := make([]types.Project, len(result.Items))
+			for i, item := range result.Items {
+				projects[i] = types.Project{
+					Path:          item.FullName,
+					Name:          item.Name,
+					HTTPURLToRepo: item.HTMLURL,
+					SSHURLToRepo:  item.SSHURL,
+					Desc:          item.Description,
+				}
+			}
+			return projects, nil
+		}
+		// Gitee user/repos returns flat array same as GitLab
+		var repos []struct {
+			FullName    string `json:"full_name"`
+			Name        string `json:"name"`
+			HTMLURL     string `json:"html_url"`
+			SSHURL      string `json:"ssh_url"`
+			Description string `json:"description"`
+		}
+		if err := json.Unmarshal(body, &repos); err != nil {
+			return nil, fmt.Errorf("解析Gitee仓库列表失败: %v", err)
+		}
+		projects := make([]types.Project, len(repos))
+		for i, repo := range repos {
+			projects[i] = types.Project{
+				Path:          repo.FullName,
+				Name:          repo.Name,
+				HTTPURLToRepo: repo.HTMLURL,
+				SSHURLToRepo:  repo.SSHURL,
+				Desc:          repo.Description,
+			}
+		}
+		return projects, nil
 	}
 
 	return nil, nil
@@ -388,6 +474,16 @@ func FetchBranches(platformURL, platformType, authType, authConfig, repoPath str
 		}
 	case "gitea":
 		apiURL = fmt.Sprintf("%s/api/v1/repos/%s/branches?limit=100", baseURL, repoPath)
+	case "gitee":
+		// Gitee OpenAPI v5
+		apiBase := "https://gitee.com/api/v5"
+		if baseURL != "https://gitee.com" && baseURL != "http://gitee.com" {
+			apiBase = baseURL + "/api/v5"
+		}
+		apiURL = fmt.Sprintf("%s/repos/%s/branches", apiBase, repoPath)
+		if token := extractToken(authConfig); token != "" {
+			apiURL = apiURL + "?access_token=" + token
+		}
 	default:
 		// 回退到 GitLab 兼容路径
 		apiURL = fmt.Sprintf("%s/api/v4/projects/%s/repository/branches?per_page=100", baseURL, url.PathEscape(repoPath))
@@ -435,6 +531,16 @@ func FetchTags(platformURL, platformType, authType, authConfig, repoPath string)
 		}
 	case "gitea":
 		apiURL = fmt.Sprintf("%s/api/v1/repos/%s/tags?limit=100", baseURL, repoPath)
+	case "gitee":
+		// Gitee OpenAPI v5
+		apiBase := "https://gitee.com/api/v5"
+		if baseURL != "https://gitee.com" && baseURL != "http://gitee.com" {
+			apiBase = baseURL + "/api/v5"
+		}
+		apiURL = fmt.Sprintf("%s/repos/%s/tags", apiBase, repoPath)
+		if token := extractToken(authConfig); token != "" {
+			apiURL = apiURL + "?access_token=" + token
+		}
 	default:
 		apiURL = fmt.Sprintf("%s/api/v4/projects/%s/repository/tags?per_page=100", baseURL, url.PathEscape(repoPath))
 	}

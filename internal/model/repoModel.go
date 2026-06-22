@@ -6,6 +6,7 @@ import (
 
 type RepoResp struct {
 	ID             uint              `gorm:"column:id" json:"id"`
+	GitPlatformID  *uint             `gorm:"column:git_platform_id" json:"git_platform_id"`
 	RepoNumber     string            `gorm:"column:repo_number" json:"repo_number"`
 	CName          string            `gorm:"column:c_name" json:"c_name"`
 	EName          string            `gorm:"column:e_name" json:"e_name"`
@@ -22,9 +23,10 @@ type RepoResp struct {
 }
 type Repo struct {
 	ID             uint              `gorm:"primaryKey" json:"id"`
+	GitPlatformID  *uint             `gorm:"uniqueIndex:idx_repo_platform_cname;uniqueIndex:idx_repo_platform_ename;comment:Git平台ID" json:"git_platform_id"`
 	RepoNumber     string            `gorm:"type:text;comment:仓库编号" json:"repo_number"`
-	CName          string            `gorm:"size:255;uniqueIndex;not null;comment:中文名称" json:"c_name"`
-	EName          string            `gorm:"size:255;uniqueIndex;not null;comment:英文名称" json:"e_name"`
+	CName          string            `gorm:"size:255;uniqueIndex:idx_repo_platform_cname;not null;comment:中文名称" json:"c_name"`
+	EName          string            `gorm:"size:255;uniqueIndex:idx_repo_platform_ename;not null;comment:英文名称" json:"e_name"`
 	RepoURL        string            `gorm:"type:text;comment:HTTP地址" json:"repo_url"`
 	RepoSSHURL     string            `gorm:"type:text;comment:SSH地址" json:"repo_ssh_url"`
 	RepoManager    string            `gorm:"type:text;comment:责任人" json:"repo_manager"`
