@@ -631,9 +631,10 @@ func (s *DeployService) triggerJenkinsBuild(task *model.DeployTask) (*core.Jenki
 		"REGISTRY_URL":      registryURL,
 		"REGISTRY_PROJECT":  registryProject,
 		"IMAGE_NAME":        imageName,
-		"REGISTRY_CREDS_ID": registryCredsID,
-		"GIT_CREDS_ID":      gitCredsID,
-		"DEPLOY_TARGET":     task.DeployTarget,
+		"REGISTRY_CREDS_ID":   registryCredsID,
+		"GIT_CREDS_ID":        gitCredsID,
+		"DEPLOY_TARGET":       task.DeployTarget,
+		"DOCKERFILE_CONTENT":  buildTemplate.Dockerfile,
 	}
 
 	result, err := jenkinsClient.BuildJob(task.JenkinsJobName, params)
@@ -1677,6 +1678,12 @@ func (s *DeployService) generateJobConfig(template *model.BuildTemplate, targetB
 					<name>DEPLOY_TARGET</name>
 					<description>Deployment target (k8s/docker/linux)</description>
 					<defaultValue>k8s</defaultValue>
+					<trim>false</trim>
+				</hudson.model.StringParameterDefinition>
+				<hudson.model.StringParameterDefinition>
+					<name>DOCKERFILE_CONTENT</name>
+					<description>Dockerfile content from build template</description>
+					<defaultValue></defaultValue>
 					<trim>false</trim>
 				</hudson.model.StringParameterDefinition>
 			</parameterDefinitions>
