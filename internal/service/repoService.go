@@ -1,6 +1,7 @@
 package service
 
 import (
+	"encoding/json"
 	"fmt"
 
 	"github.com/ZebraOps/ZebraCICD/internal/core"
@@ -66,7 +67,7 @@ func (s *RepoService) ListReposWithConditions(conditions types.RepoQueryConditio
 	return s.repoRepo.ListWithConditions(conditions, page, size)
 }
 
-// ListRepoBranchesByApp 通过应用ID获取关联仓库的分支列表
+// ListRepoBranchesByApp 通过应用ID获取关联仓库的分支列表（支持多平台）
 func (s *RepoService) ListRepoBranchesByApp(appID uint) ([]string, error) {
 	var app model.Application
 	if err := s.db.First(&app, appID).Error; err != nil {
@@ -76,11 +77,14 @@ func (s *RepoService) ListRepoBranchesByApp(appID uint) ([]string, error) {
 	if err := s.db.First(&repo, app.RepoID).Error; err != nil {
 		return nil, fmt.Errorf("仓库 %d 不存在: %v", app.RepoID, err)
 	}
-	projectPath := repo.RepoNumber
-	if projectPath == "" {
-		return nil, fmt.Errorf("仓库 %d 缺少 GitLab 项目编号", repo.ID)
+	if repo.RepoNumber == "" {
+		return nil, fmt.Errorf("仓库 %d 缺少项目编号 (repo_number)，请在仓库管理中填写", repo.ID)
 	}
-	branches, err := s.gitlabClient.GetBranches(projectPath)
+
+	// 从应用的部署配置获取 git_platform_id
+	platformCfg := s.getGitPlatformByAppID(appID)
+
+	branches, err := core.FetchBranches(platformCfg.URL, platformCfg.PlatformType, platformCfg.AuthType, platformCfg.AuthConfig, repo.RepoNumber)
 	if err != nil {
 		return nil, fmt.Errorf("获取分支列表失败: %v", err)
 	}
@@ -91,7 +95,7 @@ func (s *RepoService) ListRepoBranchesByApp(appID uint) ([]string, error) {
 	return names, nil
 }
 
-// ListRepoTagsByApp 通过应用ID获取关联仓库的标签列表
+// ListRepoTagsByApp 通过应用ID获取关联仓库的标签列表（支持多平台）
 func (s *RepoService) ListRepoTagsByApp(appID uint) ([]string, error) {
 	var app model.Application
 	if err := s.db.First(&app, appID).Error; err != nil {
@@ -101,11 +105,13 @@ func (s *RepoService) ListRepoTagsByApp(appID uint) ([]string, error) {
 	if err := s.db.First(&repo, app.RepoID).Error; err != nil {
 		return nil, fmt.Errorf("仓库 %d 不存在: %v", app.RepoID, err)
 	}
-	projectPath := repo.RepoNumber
-	if projectPath == "" {
-		return nil, fmt.Errorf("仓库 %d 缺少 GitLab 项目编号", repo.ID)
+	if repo.RepoNumber == "" {
+		return nil, fmt.Errorf("仓库 %d 缺少项目编号 (repo_number)，请在仓库管理中填写", repo.ID)
 	}
-	tags, err := s.gitlabClient.GetTags(projectPath)
+
+	platformCfg := s.getGitPlatformByAppID(appID)
+
+	tags, err := core.FetchTags(platformCfg.URL, platformCfg.PlatformType, platformCfg.AuthType, platformCfg.AuthConfig, repo.RepoNumber)
 	if err != nil {
 		return nil, fmt.Errorf("获取标签列表失败: %v", err)
 	}
@@ -114,4 +120,57 @@ func (s *RepoService) ListRepoTagsByApp(appID uint) ([]string, error) {
 		names = append(names, t.Name)
 	}
 	return names, nil
+}
+
+// gitPlatformInfo 提取后返回的 Git 平台配置简化结构
+type gitPlatformInfo struct {
+	URL          string
+	PlatformType string
+	AuthType     string
+	AuthConfig   string
+}
+
+// getGitPlatformByAppID 从应用部署配置中查找关联的 Git 平台
+func (s *RepoService) getGitPlatformByAppID(appID uint) gitPlatformInfo {
+	// 默认回退：使用主 GitLab 客户端
+	fallback := gitPlatformInfo{
+		URL:          s.gitlabBaseURL,
+		PlatformType: "gitlab",
+		AuthType:     "token",
+		AuthConfig:   "",
+	}
+
+	// 通过 ApplicationDeployment 获取 git_platform_id
+	var deploy model.ApplicationDeployment
+	if err := s.db.Where("application_id = ?", appID).First(&deploy).Error; err != nil {
+		return fallback
+	}
+	if deploy.GitPlatformID == nil {
+		return fallback
+	}
+
+	var platform model.GitPlatform
+	if err := s.db.First(&platform, *deploy.GitPlatformID).Error; err != nil {
+		return fallback
+	}
+
+	// 解析 auth_config JSON，提取 token 注入到 AuthConfig
+	authConfig := platform.AuthConfig
+	if authConfig == "" {
+		authConfig = "{}"
+	}
+	// 对于 token 认证，确保 token 设置到请求头
+	var ac map[string]string
+	if json.Unmarshal([]byte(authConfig), &ac) == nil {
+		if token, ok := ac["token"]; ok && token != "" {
+			authConfig = fmt.Sprintf(`{"token":"%s"}`, token)
+		}
+	}
+
+	return gitPlatformInfo{
+		URL:          platform.URL,
+		PlatformType: platform.PlatformType,
+		AuthType:     platform.AuthType,
+		AuthConfig:   authConfig,
+	}
 }

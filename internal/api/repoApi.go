@@ -101,8 +101,14 @@ func UpdateRepoHandler(c *gin.Context, svc *service.RepoService) {
 	if req.EName != "" {
 		existingRepo.EName = req.EName
 	}
+	if req.RepoNumber != "" {
+		existingRepo.RepoNumber = req.RepoNumber
+	}
 	if req.RepoURL != "" {
 		existingRepo.RepoURL = req.RepoURL
+	}
+	if req.RepoSSHURL != "" {
+		existingRepo.RepoSSHURL = req.RepoSSHURL
 	}
 	if req.RepoManager != "" {
 		existingRepo.RepoManager = req.RepoManager

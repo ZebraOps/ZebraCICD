@@ -368,3 +368,99 @@ func FetchPlatformProjects(platformURL, platformType, authType, authConfig, sear
 
 	return nil, nil
 }
+
+// ─── 多平台分支/标签查询 ──────────────────────────────────────────
+
+// FetchBranches 根据平台类型获取仓库分支列表
+// repoPath: GitLab 为项目 ID/路径, GitHub/Gitea 为 owner/repo
+func FetchBranches(platformURL, platformType, authType, authConfig, repoPath string) ([]types.Branch, error) {
+	client := &http.Client{Timeout: 15 * time.Second}
+	baseURL := normalizeURL(platformURL)
+
+	var apiURL string
+	switch platformType {
+	case "gitlab":
+		apiURL = fmt.Sprintf("%s/api/v4/projects/%s/repository/branches?per_page=100", baseURL, url.PathEscape(repoPath))
+	case "github":
+		apiURL = fmt.Sprintf("https://api.github.com/repos/%s/branches?per_page=100", repoPath)
+		if baseURL != "https://github.com" && baseURL != "http://github.com" {
+			apiURL = fmt.Sprintf("%s/api/v3/repos/%s/branches?per_page=100", baseURL, repoPath)
+		}
+	case "gitea":
+		apiURL = fmt.Sprintf("%s/api/v1/repos/%s/branches?limit=100", baseURL, repoPath)
+	default:
+		// 回退到 GitLab 兼容路径
+		apiURL = fmt.Sprintf("%s/api/v4/projects/%s/repository/branches?per_page=100", baseURL, url.PathEscape(repoPath))
+	}
+
+	req, err := http.NewRequest("GET", apiURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("构造请求失败: %v", err)
+	}
+	if err := setAuthHeaders(req, platformType, authType, authConfig); err != nil {
+		return nil, fmt.Errorf("解析认证配置失败: %v", err)
+	}
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("请求失败: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("获取分支失败 (HTTP %d): %s", resp.StatusCode, truncateString(string(body), 200))
+	}
+
+	var branches []types.Branch
+	if err := json.NewDecoder(resp.Body).Decode(&branches); err != nil {
+		return nil, fmt.Errorf("解析分支列表失败: %v", err)
+	}
+	return branches, nil
+}
+
+// FetchTags 根据平台类型获取仓库标签列表
+func FetchTags(platformURL, platformType, authType, authConfig, repoPath string) ([]types.Tag, error) {
+	client := &http.Client{Timeout: 15 * time.Second}
+	baseURL := normalizeURL(platformURL)
+
+	var apiURL string
+	switch platformType {
+	case "gitlab":
+		apiURL = fmt.Sprintf("%s/api/v4/projects/%s/repository/tags?per_page=100", baseURL, url.PathEscape(repoPath))
+	case "github":
+		apiURL = fmt.Sprintf("https://api.github.com/repos/%s/tags?per_page=100", repoPath)
+		if baseURL != "https://github.com" && baseURL != "http://github.com" {
+			apiURL = fmt.Sprintf("%s/api/v3/repos/%s/tags?per_page=100", baseURL, repoPath)
+		}
+	case "gitea":
+		apiURL = fmt.Sprintf("%s/api/v1/repos/%s/tags?limit=100", baseURL, repoPath)
+	default:
+		apiURL = fmt.Sprintf("%s/api/v4/projects/%s/repository/tags?per_page=100", baseURL, url.PathEscape(repoPath))
+	}
+
+	req, err := http.NewRequest("GET", apiURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("构造请求失败: %v", err)
+	}
+	if err := setAuthHeaders(req, platformType, authType, authConfig); err != nil {
+		return nil, fmt.Errorf("解析认证配置失败: %v", err)
+	}
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("请求失败: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("获取标签失败 (HTTP %d): %s", resp.StatusCode, truncateString(string(body), 200))
+	}
+
+	var tags []types.Tag
+	if err := json.NewDecoder(resp.Body).Decode(&tags); err != nil {
+		return nil, fmt.Errorf("解析标签列表失败: %v", err)
+	}
+	return tags, nil
+}
