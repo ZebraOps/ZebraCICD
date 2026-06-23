@@ -374,6 +374,18 @@ func (s *ApplicationService) UpdateApplicationDeployment(id uint, req *model.App
 	existingDeployment.ImageRepoID = req.ImageRepoID
 	existingDeployment.CredentialMode = req.CredentialMode
 
+	// 清空预加载的关联对象，避免 GORM Save 时被关联对象的主键覆盖外键字段
+	existingDeployment.Application = nil
+	existingDeployment.Environment = nil
+	existingDeployment.BuildTemplate = nil
+	existingDeployment.DeploymentTemplate = nil
+	existingDeployment.K8sCluster = nil
+	existingDeployment.Server = nil
+	existingDeployment.JenkinsPlatform = nil
+	existingDeployment.JenkinsCredential = nil
+	existingDeployment.GitPlatform = nil
+	existingDeployment.ImageRepository = nil
+
 	if err := s.deployRepo.Update(existingDeployment); err != nil {
 		return nil, err
 	}
