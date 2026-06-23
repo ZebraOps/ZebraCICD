@@ -6,6 +6,7 @@ import (
 	stderrors "errors"
 	"fmt"
 	"os"
+	"regexp"
 	"strings"
 	"time"
 
@@ -567,6 +568,13 @@ func (s *DeployService) triggerJenkinsBuild(task *model.DeployTask) (*core.Jenki
 	if imageName == "" {
 		imageName = task.ImageName
 	}
+	// 兜底：确保 IMAGE_NAME 参数不为空，防止 Jenkins post 块中
+	// 因 Groovy 变量绑定缺失抛出 MissingPropertyException
+	if imageName == "" {
+		imageName = strings.ToLower(strings.ReplaceAll(app.EName, " ", "-"))
+	}
+	// Docker 镜像名必须全小写
+	imageName = strings.ToLower(imageName)
 	if registryCredsID == "" {
 		// 未配置平台关联时，使用配置中的默认凭据 ID
 		registryCredsID = s.cfg.JenkinsDefaultRegistryCred
@@ -1607,7 +1615,8 @@ func (s *DeployService) GetTaskConsole(taskID uint) (string, error) {
 func (s *DeployService) generateJobConfig(template *model.BuildTemplate, targetBranch, repoURL, tag string) string {
 	pipelineContent := strings.ReplaceAll(template.Pipeline, "\\n", "\n")
 	pipelineContent = strings.ReplaceAll(pipelineContent, "\r\n", "\n")
-	pipelineContent = strings.ReplaceAll(pipelineContent, "\\", "")
+	// 清理 JSON 转义残留的引号（\" → "），但保留 shell 行续符（\\）
+	pipelineContent = strings.ReplaceAll(pipelineContent, "\\\"", "\"")
 	pipelineContent = strings.ReplaceAll(pipelineContent, "\r", "\n")
 
 	// 兼容旧 pipeline 脚本中的参数名迁移：HARBOR_* → REGISTRY_*
@@ -1616,6 +1625,22 @@ func (s *DeployService) generateJobConfig(template *model.BuildTemplate, targetB
 	pipelineContent = strings.ReplaceAll(pipelineContent, "HARBOR_REGISTRY", "REGISTRY_URL")
 	pipelineContent = strings.ReplaceAll(pipelineContent, "HARBOR_PROJECT", "REGISTRY_PROJECT")
 	pipelineContent = strings.ReplaceAll(pipelineContent, "HARBOR_CREDS_ID", "REGISTRY_CREDS_ID")
+
+	// 安全保护：将 pipeline 中裸 ${VAR} 替换为 ${params.VAR}
+	// Declarative Pipeline 中 environment {} 变量与同名 Job 参数冲突时，
+	// Groovy sandbox 绑定不稳定（post 块和早期阶段均可能触发），
+	// 抛出 MissingPropertyException。params. 前缀在任何阶段都可靠。
+	// 仅匹配纯 ${VAR_NAME}，不影响已使用 ${params.VAR_NAME} / ${env.VAR_NAME} 的脚本。
+	// 覆盖全部 10 个 Job 参数名
+	bareParamNames := []string{
+		"IMAGE_NAME", "REGISTRY_URL", "REGISTRY_PROJECT", "Tag",
+		"TARGET_BRANCH", "Repo_URL", "REGISTRY_CREDS_ID", "GIT_CREDS_ID",
+		"DEPLOY_TARGET", "DOCKERFILE_CONTENT",
+	}
+	for _, name := range bareParamNames {
+		re := regexp.MustCompile(`\$\{` + regexp.QuoteMeta(name) + `\}`)
+		pipelineContent = re.ReplaceAllString(pipelineContent, `${params.` + name + `}`)
+	}
 
 	escapedPipeline := escapeXMLContent(pipelineContent)
 
