@@ -6,7 +6,7 @@ import (
 	"github.com/hibiken/asynq"
 )
 
-func NewServer(addr, password string, db, concurrency int) *asynq.Server {
+func NewServer(addr, password string, db, concurrency int, retryDelayBase time.Duration) *asynq.Server {
 	return asynq.NewServer(
 		asynq.RedisClientOpt{
 			Addr:     addr,
@@ -18,9 +18,9 @@ func NewServer(addr, password string, db, concurrency int) *asynq.Server {
 			Queues: map[string]int{
 				"deploy": 10,
 			},
-			// 指数退避：30s, 60s, 90s
+			// 指数退避，基数由配置决定
 			RetryDelayFunc: func(n int, e error, t *asynq.Task) time.Duration {
-				return time.Duration(n) * 30 * time.Second
+				return time.Duration(n) * retryDelayBase
 			},
 		},
 	)

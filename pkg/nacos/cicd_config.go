@@ -1,6 +1,8 @@
 package nacos
 
 import (
+	"fmt"
+
 	"go.uber.org/zap"
 	"gopkg.in/yaml.v3"
 )
@@ -35,7 +37,7 @@ type CICDConfig struct {
 	} `yaml:"jenkins"`
 
 	Registry struct {
-		URL      string `yaml:"url"`
+		URL      string `yaml:"default_url"`
 		Username string `yaml:"username"`
 		Password string `yaml:"password"`
 	} `yaml:"registry"`
@@ -292,6 +294,78 @@ func (l *CICDConfigLoader) LoadNginxConfPath(defaultValue string) string {
 	return defaultValue
 }
 
+// LoadJenkinsUser 加载 Jenkins 用户名
+func (l *CICDConfigLoader) LoadJenkinsUser(defaultValue string) string {
+	if l.config != nil && l.config.Jenkins.Username != "" {
+		l.logger.Info("✓ 从 Nacos YAML 加载 Jenkins 用户名成功")
+		return l.config.Jenkins.Username
+	}
+	return defaultValue
+}
+
+// LoadRegistryUsername 加载镜像仓库用户名
+func (l *CICDConfigLoader) LoadRegistryUsername(defaultValue string) string {
+	if l.config != nil && l.config.Registry.Username != "" {
+		l.logger.Info("✓ 从 Nacos YAML 加载 Registry 用户名成功")
+		return l.config.Registry.Username
+	}
+	return defaultValue
+}
+
+// LoadRegistryPassword 加载镜像仓库密码
+func (l *CICDConfigLoader) LoadRegistryPassword(defaultValue string) string {
+	if l.config != nil && l.config.Registry.Password != "" {
+		l.logger.Info("✓ 从 Nacos YAML 加载 Registry 密码成功")
+		return l.config.Registry.Password
+	}
+	return defaultValue
+}
+
+// LoadQueueMaxRetry 加载队列最大重试次数
+func (l *CICDConfigLoader) LoadQueueMaxRetry(defaultValue string) string {
+	if l.config != nil {
+		l.logger.Info("✓ 从 Nacos YAML 加载 Queue MaxRetry 成功", zap.Int("value", l.config.Queue.MaxRetry))
+		return fmt.Sprintf("%d", l.config.Queue.MaxRetry)
+	}
+	return defaultValue
+}
+
+// LoadQueueTaskTimeout 加载队列任务超时
+func (l *CICDConfigLoader) LoadQueueTaskTimeout(defaultValue string) string {
+	if l.config != nil && l.config.Queue.TaskTimeout != "" {
+		l.logger.Info("✓ 从 Nacos YAML 加载 Queue TaskTimeout 成功")
+		return l.config.Queue.TaskTimeout
+	}
+	return defaultValue
+}
+
+// LoadQueueRetryDelayBase 加载队列重试延迟基数
+func (l *CICDConfigLoader) LoadQueueRetryDelayBase(defaultValue string) string {
+	if l.config != nil && l.config.Queue.RetryDelayBase != "" {
+		l.logger.Info("✓ 从 Nacos YAML 加载 Queue RetryDelayBase 成功")
+		return l.config.Queue.RetryDelayBase
+	}
+	return defaultValue
+}
+
+// LoadServiceName 加载服务名称
+func (l *CICDConfigLoader) LoadServiceName(defaultValue string) string {
+	if l.config != nil && l.config.Service.Name != "" {
+		l.logger.Info("✓ 从 Nacos YAML 加载 Service Name 成功")
+		return l.config.Service.Name
+	}
+	return defaultValue
+}
+
+// LoadServiceDescription 加载服务描述
+func (l *CICDConfigLoader) LoadServiceDescription(defaultValue string) string {
+	if l.config != nil && l.config.Service.Description != "" {
+		l.logger.Info("✓ 从 Nacos YAML 加载 Service Description 成功")
+		return l.config.Service.Description
+	}
+	return defaultValue
+}
+
 // LoadAllConfigs 一次性加载所有配置
 func (l *CICDConfigLoader) LoadAllConfigs(cfg map[string]string) {
 	configs := []struct {
@@ -303,20 +377,32 @@ func (l *CICDConfigLoader) LoadAllConfigs(cfg map[string]string) {
 		{"gitlab_token", cfg["gitlab_token"], l.LoadGitLabToken},
 		{"gitlab_url", cfg["gitlab_url"], l.LoadGitLabURL},
 		{"jenkins_url", cfg["jenkins_url"], l.LoadJenkinsURL},
+		{"jenkins_user", cfg["jenkins_user"], l.LoadJenkinsUser},
 		{"jenkins_password", cfg["jenkins_password"], l.LoadJenkinsPassword},
 		{"registry_url", cfg["registry_url"], l.LoadRegistryURL},
+		{"registry_username", cfg["registry_username"], l.LoadRegistryUsername},
+		{"registry_password", cfg["registry_password"], l.LoadRegistryPassword},
 		{"redis_addr", cfg["redis_addr"], l.LoadRedisAddr},
 		{"redis_password", cfg["redis_password"], l.LoadRedisPassword},
-		// 新增配置项
+		// Jenkins 详细配置
 		{"jenkins_build_wait_timeout", cfg["jenkins_build_wait_timeout"], l.LoadJenkinsBuildWaitTimeout},
 		{"jenkins_build_poll_interval", cfg["jenkins_build_poll_interval"], l.LoadJenkinsBuildPollInterval},
 		{"jenkins_default_registry_cred", cfg["jenkins_default_registry_cred"], l.LoadJenkinsDefaultRegistryCred},
 		{"jenkins_default_git_cred", cfg["jenkins_default_git_cred"], l.LoadJenkinsDefaultGitCred},
+		// 超时配置
 		{"ssh_connect_timeout", cfg["ssh_connect_timeout"], l.LoadSSHConnectTimeout},
 		{"gitlab_http_timeout", cfg["gitlab_http_timeout"], l.LoadGitlabHTTPTimeout},
 		{"jenkins_http_timeout", cfg["jenkins_http_timeout"], l.LoadJenkinsHTTPTimeout},
+		// 路径配置
 		{"deploy_base_path", cfg["deploy_base_path"], l.LoadDeployBasePath},
 		{"nginx_conf_path", cfg["nginx_conf_path"], l.LoadNginxConfPath},
+		// 队列配置
+		{"queue_max_retry", cfg["queue_max_retry"], l.LoadQueueMaxRetry},
+		{"queue_task_timeout", cfg["queue_task_timeout"], l.LoadQueueTaskTimeout},
+		{"queue_retry_delay_base", cfg["queue_retry_delay_base"], l.LoadQueueRetryDelayBase},
+		// 服务配置
+		{"service_name", cfg["service_name"], l.LoadServiceName},
+		{"service_description", cfg["service_description"], l.LoadServiceDescription},
 	}
 
 	for _, c := range configs {

@@ -51,6 +51,15 @@ type Config struct {
 	// 路径配置
 	DeployBasePath string
 	NginxConfPath  string
+
+	// 队列配置（从 Nacos 加载，可覆盖本地默认）
+	QueueMaxRetry      int
+	QueueTaskTimeout   time.Duration
+	QueueRetryDelayBase time.Duration
+
+	// 服务发现配置（从 Nacos 加载）
+	ServiceName        string
+	ServiceDescription string
 }
 
 func Load() *Config {
@@ -128,9 +137,22 @@ func Load() *Config {
 	viper.SetDefault("paths.deploy_base", "/opt/zebra-deploy")
 	viper.SetDefault("paths.nginx_conf", "/etc/nginx/conf.d")
 
+	// 队列配置默认值
+	viper.SetDefault("queue.max_retry", 0)
+	viper.SetDefault("queue.task_timeout", "35m")
+	viper.SetDefault("queue.retry_delay_base", "30s")
+
+	// 服务发现默认值
+	viper.SetDefault("service.name", "zebra-cicd")
+	viper.SetDefault("service.description", "ZebraOps CI/CD 管理服务")
+
 	// 解析 Jenkins 超时配置
 	jenkinsBuildWaitTimeout, _ := time.ParseDuration(viper.GetString("jenkins.build_wait_timeout"))
 	jenkinsBuildPollInterval, _ := time.ParseDuration(viper.GetString("jenkins.build_poll_interval"))
+
+	// 解析队列超时配置
+	queueTaskTimeout, _ := time.ParseDuration(viper.GetString("queue.task_timeout"))
+	queueRetryDelayBase, _ := time.ParseDuration(viper.GetString("queue.retry_delay_base"))
 
 	// 解析 HTTP/SSH 超时配置
 	gitlabHTTPTimeout, _ := time.ParseDuration(viper.GetString("timeout.gitlab_http"))
@@ -178,6 +200,15 @@ func Load() *Config {
 		// 路径配置
 		DeployBasePath: viper.GetString("paths.deploy_base"),
 		NginxConfPath:  viper.GetString("paths.nginx_conf"),
+
+		// 队列配置
+		QueueMaxRetry:       viper.GetInt("queue.max_retry"),
+		QueueTaskTimeout:    queueTaskTimeout,
+		QueueRetryDelayBase: queueRetryDelayBase,
+
+		// 服务发现配置
+		ServiceName:        viper.GetString("service.name"),
+		ServiceDescription: viper.GetString("service.description"),
 
 		Logging: types.LoggingConfig{
 			Level:            viper.GetString("logging.level"),

@@ -20,16 +20,18 @@ type DeployTaskPayload struct {
 }
 
 type Client struct {
-	client *asynq.Client
+	client   *asynq.Client
+	maxRetry int
 }
 
-func NewClient(addr, password string, db int) *Client {
+func NewClient(addr, password string, db, maxRetry int) *Client {
 	return &Client{
 		client: asynq.NewClient(asynq.RedisClientOpt{
 			Addr:     addr,
 			Password: password,
 			DB:       db,
 		}),
+		maxRetry: maxRetry,
 	}
 }
 
@@ -48,7 +50,7 @@ func (c *Client) EnqueueDeployTask(taskID uint) error {
 		TypeDeployTask,
 		payload,
 		asynq.TaskID(fmt.Sprintf("deploy:%d", taskID)),
-		asynq.MaxRetry(3),
+		asynq.MaxRetry(c.maxRetry),
 		asynq.Timeout(35*time.Minute),
 		asynq.Queue("deploy"),
 	)
@@ -67,7 +69,7 @@ func (c *Client) EnqueueDeployTaskRetry(taskID uint) error {
 		TypeDeployTask,
 		payload,
 		asynq.TaskID(fmt.Sprintf("deploy:%d:retry-%d", taskID, time.Now().Unix())),
-		asynq.MaxRetry(3),
+		asynq.MaxRetry(c.maxRetry),
 		asynq.Timeout(35*time.Minute),
 		asynq.Queue("deploy"),
 	)
@@ -84,7 +86,7 @@ func (c *Client) EnqueueDeployTaskAt(taskID uint, scheduledAt *time.Time) error 
 
 	opts := []asynq.Option{
 		asynq.TaskID(fmt.Sprintf("deploy:%d:scheduled", taskID)),
-		asynq.MaxRetry(3),
+		asynq.MaxRetry(c.maxRetry),
 		asynq.Timeout(35 * time.Minute),
 		asynq.Queue("deploy"),
 	}
@@ -108,7 +110,7 @@ func (c *Client) EnqueueBuildTask(taskID uint) error {
 		TypeBuildTask,
 		payload,
 		asynq.TaskID(fmt.Sprintf("build:%d:%d", taskID, time.Now().Unix())),
-		asynq.MaxRetry(3),
+		asynq.MaxRetry(c.maxRetry),
 		asynq.Timeout(20*time.Minute),
 		asynq.Queue("deploy"),
 	)
@@ -126,7 +128,7 @@ func (c *Client) EnqueueDeployOnlyTask(taskID uint) error {
 		TypeDeployOnlyTask,
 		payload,
 		asynq.TaskID(fmt.Sprintf("deploy-only:%d:%d", taskID, time.Now().Unix())),
-		asynq.MaxRetry(3),
+		asynq.MaxRetry(c.maxRetry),
 		asynq.Timeout(15*time.Minute),
 		asynq.Queue("deploy"),
 	)

@@ -1,0 +1,72 @@
+# ZebraCICD 服务配置
+# Data ID: zebra-cicd.yaml
+# Group: DEFAULT_GROUP
+# 配置格式: YAML
+#
+# 使用说明：
+# 1. 在 Nacos 控制台创建配置：Data ID = zebra-cicd.yaml, Group = DEFAULT_GROUP
+# 2. 将此文件内容复制到 Nacos 配置内容中
+# 3. 根据实际环境修改配置值
+# 4. 发布配置后，ZebraCICD 服务会自动加载
+
+# ==================== 数据库配置 ====================
+database:
+  url: "postgres://postgres:postgres123@192.168.192.87:5432/postgres?sslmode=disable"
+
+# ==================== GitLab 配置 ====================
+gitlab:
+  url: "https://git.zmcms.cn"
+  token: "xnfDCyU84vye7hUpsXL3"
+
+# ==================== Jenkins 配置 ====================
+jenkins:
+  url: "http://192.168.192.87:8081/"
+  username: "admin"
+  password: "11b897a827d20d9984eeda5f4f2f1430c0"
+  # 构建相关超时配置
+  build_wait_timeout: "10m"
+  build_poll_interval: "10s"
+  # 默认凭据 ID (在 Jenkins 中配置的凭据)
+  default_credentials:
+    registry: "registry-creds"
+    git: "gitlab_user_orange"
+
+# ==================== 镜像仓库配置 ====================
+registry:
+  default_url: "registry.cn-shanghai.aliyuncs.com"
+  username: "numachen"
+  password: "110jj119@123"
+
+# ==================== Redis 配置 ====================
+redis:
+  addr: "192.168.192.87:6379"
+  password: ""
+
+# ==================== 消息队列配置 (Asynq) ====================
+queue:
+  # 任务失败最大重试次数（0 = 不自动重试）
+  max_retry: 1
+  # 单个任务最大执行时间
+  task_timeout: "35m"
+  # 重试延迟基数 (指数退避: n * retry_delay_base)
+  retry_delay_base: "30s"
+
+# ==================== 超时配置 ====================
+timeout:
+  # HTTP 客户端超时
+  gitlab_http: "15s"
+  jenkins_http: "30s"
+  # SSH 连接超时
+  ssh_connect: "10s"
+
+# ==================== 部署路径配置 ====================
+paths:
+  # Docker Compose 部署目录 (最终路径: {deploy_base}/{app_name})
+  deploy_base: "/opt/zebra-deploy"
+  # Nginx 配置目录
+  nginx_conf: "/etc/nginx/conf.d"
+
+# ==================== 服务发现配置 ====================
+service:
+  name: "zebra-cicd"
+  description: "ZebraOps CI/CD 管理服务"

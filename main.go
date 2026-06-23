@@ -5,6 +5,7 @@ import (
 	"net"
 	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
 	"time"
 
@@ -95,22 +96,32 @@ func main() {
 				"gitlab_token":      cfg.GitLabToken,
 				"gitlab_url":        cfg.GitLabURL,
 				"jenkins_url":       cfg.JenkinsURL,
+				"jenkins_user":      cfg.JenkinsUser,
 				"jenkins_password":  cfg.JenkinsPass,
 				"registry_url":      cfg.RegistryURL,
 				"registry_username": cfg.RegistryUser,
 				"registry_password": cfg.RegistryPass,
 				"redis_addr":        cfg.RedisAddr,
 				"redis_password":    cfg.RedisPassword,
-				// 新增配置项
+				// Jenkins 详细配置
 				"jenkins_build_wait_timeout":    "10m",
 				"jenkins_build_poll_interval":   "10s",
 				"jenkins_default_registry_cred": "registry-creds",
 				"jenkins_default_git_cred":      "gitlab_user_orange",
-				"ssh_connect_timeout":           "10s",
-				"gitlab_http_timeout":           "15s",
-				"jenkins_http_timeout":          "30s",
-				"deploy_base_path":              "/opt/zebra-deploy",
-				"nginx_conf_path":               "/etc/nginx/conf.d",
+				// 超时配置
+				"ssh_connect_timeout":  "10s",
+				"gitlab_http_timeout":  "15s",
+				"jenkins_http_timeout": "30s",
+				// 路径配置
+				"deploy_base_path": "/opt/zebra-deploy",
+				"nginx_conf_path":  "/etc/nginx/conf.d",
+				// 队列配置
+				"queue_max_retry":        fmt.Sprintf("%d", cfg.QueueMaxRetry),
+				"queue_task_timeout":     "35m",
+				"queue_retry_delay_base": "30s",
+				// 服务配置
+				"service_name":        cfg.ServiceName,
+				"service_description": cfg.ServiceDescription,
 			}
 
 			nacosLoader.LoadAllConfigs(configMap)
@@ -120,6 +131,7 @@ func main() {
 			cfg.GitLabToken = configMap["gitlab_token"]
 			cfg.GitLabURL = configMap["gitlab_url"]
 			cfg.JenkinsURL = configMap["jenkins_url"]
+			cfg.JenkinsUser = configMap["jenkins_user"]
 			cfg.JenkinsPass = configMap["jenkins_password"]
 			cfg.RegistryURL = configMap["registry_url"]
 			cfg.RegistryUser = configMap["registry_username"]
@@ -127,7 +139,7 @@ func main() {
 			cfg.RedisAddr = configMap["redis_addr"]
 			cfg.RedisPassword = configMap["redis_password"]
 
-			// 解析并更新新增配置
+			// 解析并更新 Jenkins 配置
 			if v := configMap["jenkins_build_wait_timeout"]; v != "" {
 				cfg.JenkinsBuildWaitTimeout, _ = time.ParseDuration(v)
 			}
@@ -136,6 +148,8 @@ func main() {
 			}
 			cfg.JenkinsDefaultRegistryCred = configMap["jenkins_default_registry_cred"]
 			cfg.JenkinsDefaultGitCred = configMap["jenkins_default_git_cred"]
+
+			// 解析并更新超时配置
 			if v := configMap["ssh_connect_timeout"]; v != "" {
 				cfg.SSHConnectTimeout, _ = time.ParseDuration(v)
 			}
@@ -145,8 +159,25 @@ func main() {
 			if v := configMap["jenkins_http_timeout"]; v != "" {
 				cfg.JenkinsHTTPTimeout, _ = time.ParseDuration(v)
 			}
+
+			// 路径配置
 			cfg.DeployBasePath = configMap["deploy_base_path"]
 			cfg.NginxConfPath = configMap["nginx_conf_path"]
+
+			// 队列配置
+			if v := configMap["queue_max_retry"]; v != "" {
+				cfg.QueueMaxRetry, _ = strconv.Atoi(v)
+			}
+			if v := configMap["queue_task_timeout"]; v != "" {
+				cfg.QueueTaskTimeout, _ = time.ParseDuration(v)
+			}
+			if v := configMap["queue_retry_delay_base"]; v != "" {
+				cfg.QueueRetryDelayBase, _ = time.ParseDuration(v)
+			}
+
+			// 服务配置
+			cfg.ServiceName = configMap["service_name"]
+			cfg.ServiceDescription = configMap["service_description"]
 
 			logger.Info("✓ Nacos 配置加载完成")
 		}
@@ -236,7 +267,7 @@ func main() {
 	}
 
 	// 初始化 Asynq 队列客户端
-	queueClient := queue.NewClient(cfg.RedisAddr, cfg.RedisPassword, cfg.RedisDB)
+	queueClient := queue.NewClient(cfg.RedisAddr, cfg.RedisPassword, cfg.RedisDB, cfg.QueueMaxRetry)
 	defer queueClient.Close()
 
 	// Repositories and services
@@ -326,7 +357,7 @@ func main() {
 	api.RegisterDocsRoutes(r)
 
 	// --- 启动 Asynq worker server ---
-	asynqSrv := queue.NewServer(cfg.RedisAddr, cfg.RedisPassword, cfg.RedisDB, cfg.WorkerConcurrency)
+	asynqSrv := queue.NewServer(cfg.RedisAddr, cfg.RedisPassword, cfg.RedisDB, cfg.WorkerConcurrency, cfg.QueueRetryDelayBase)
 	deployWorker := worker.NewDeployWorker(deploySvc)
 	mux := asynq.NewServeMux()
 	mux.HandleFunc(queue.TypeDeployTask, deployWorker.HandleDeployTask)
@@ -342,17 +373,26 @@ func main() {
 		serviceIP := getLocalIP()
 		servicePort := getPortNumber(cfg.Port)
 
-		err := nacos.RegisterInstance("zebra-cicd", serviceIP, uint64(servicePort), map[string]string{
+		serviceName := cfg.ServiceName
+		if serviceName == "" {
+			serviceName = "zebra-cicd"
+		}
+		serviceDesc := cfg.ServiceDescription
+		if serviceDesc == "" {
+			serviceDesc = "ZebraCICD 持续集成部署服务"
+		}
+
+		err := nacos.RegisterInstance(serviceName, serviceIP, uint64(servicePort), map[string]string{
 			"version":     "0.1.0",
 			"endpoints":   "/api,/health",
-			"description": "ZebraCICD 持续集成部署服务",
+			"description": serviceDesc,
 		})
 
 		if err != nil {
 			logger.Error("服务注册失败", zap.Error(err))
 		} else {
 			logger.Info("✓ 服务注册成功",
-				zap.String("service", "zebra-cicd"),
+				zap.String("service", serviceName),
 				zap.String("ip", serviceIP),
 				zap.Uint64("port", uint64(servicePort)),
 			)
