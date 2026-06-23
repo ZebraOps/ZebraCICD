@@ -1069,6 +1069,7 @@ func (s *DeployService) renderTemplate(templateContent string, task *model.Deplo
 
 	// 替换内置模板占位符，保持YAML格式
 	rendered = strings.ReplaceAll(rendered, "{{IMAGE_TAG}}", task.ImageTag)
+	rendered = strings.ReplaceAll(rendered, "{{IMAGE_NAME}}", task.ImageName)
 	rendered = strings.ReplaceAll(rendered, "{{NAMESPACE}}", task.K8sNamespace)
 	rendered = strings.ReplaceAll(rendered, "{{PROJECT_NAME}}", projectName)
 	rendered = strings.ReplaceAll(rendered, "{{ENV_NAME}}", fmt.Sprintf("env-%d", task.EnvID))
