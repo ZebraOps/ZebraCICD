@@ -1110,6 +1110,9 @@ func (s *DeployService) applyYAMLResources(clientset *kubernetes.Clientset, yaml
 
 		obj := &unstructured.Unstructured{Object: rawObj}
 
+		// 统一规范化 K8s 资源名称：K8s 要求小写 RFC 1123 子域名
+		s.sanitizeK8sResourceName(rawObj)
+
 		switch kind {
 		case "Namespace":
 			name := s.extractValueFromMetadata(rawObj, "name")
@@ -1140,6 +1143,116 @@ func (s *DeployService) applyYAMLResources(clientset *kubernetes.Clientset, yaml
 	}
 
 	return nil
+}
+
+// sanitizeK8sResourceName 将 K8s 资源中所有名称字段转换为合规的小写形式。
+// K8s 要求资源名称符合 RFC 1123 子域名/标签规范：小写字母、数字、'-' 或 '.'，首尾为字母数字。
+// 这包括 metadata.name、namespace、container name、configMapRef、secretRef 等嵌套引用。
+func (s *DeployService) sanitizeK8sResourceName(rawObj map[string]interface{}) {
+	// 1. metadata.name / metadata.namespace
+	if metadata, ok := rawObj["metadata"].(map[string]interface{}); ok {
+		s.lowercaseMapKey(metadata, "name")
+		s.lowercaseMapKey(metadata, "namespace")
+	}
+
+	// 2. spec 下的嵌套引用
+	spec, _ := rawObj["spec"].(map[string]interface{})
+	if spec == nil {
+		return
+	}
+
+	// spec.serviceAccountName
+	s.lowercaseMapKey(spec, "serviceAccountName")
+
+	// spec.template.spec.containers[]
+	template, _ := spec["template"].(map[string]interface{})
+	if template == nil {
+		return
+	}
+	templateSpec, _ := template["spec"].(map[string]interface{})
+	if templateSpec == nil {
+		return
+	}
+
+	containers, _ := templateSpec["containers"].([]interface{})
+	for _, c := range containers {
+		container, ok := c.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		// container name
+		s.lowercaseMapKey(container, "name")
+
+		// envFrom[].configMapRef.name / secretRef.name
+		s.sanitizeEnvFrom(container)
+
+		// env[].valueFrom.configMapKeyRef.name / secretKeyRef.name
+		s.sanitizeEnv(container)
+	}
+
+	// spec.template.spec.volumes[].configMap.name / secret.secretName
+	volumes, _ := templateSpec["volumes"].([]interface{})
+	for _, v := range volumes {
+		vol, ok := v.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		if cm, ok := vol["configMap"].(map[string]interface{}); ok {
+			s.lowercaseMapKey(cm, "name")
+		}
+		if secret, ok := vol["secret"].(map[string]interface{}); ok {
+			s.lowercaseMapKey(secret, "secretName")
+		}
+	}
+}
+
+// sanitizeEnvFrom 规范化 envFrom 中的 configMapRef/secretRef 名称
+func (s *DeployService) sanitizeEnvFrom(container map[string]interface{}) {
+	envFrom, _ := container["envFrom"].([]interface{})
+	for _, ef := range envFrom {
+		item, ok := ef.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		if ref, ok := item["configMapRef"].(map[string]interface{}); ok {
+			s.lowercaseMapKey(ref, "name")
+		}
+		if ref, ok := item["secretRef"].(map[string]interface{}); ok {
+			s.lowercaseMapKey(ref, "name")
+		}
+	}
+}
+
+// sanitizeEnv 规范化 env 中 valueFrom.configMapKeyRef/secretKeyRef 名称
+func (s *DeployService) sanitizeEnv(container map[string]interface{}) {
+	envVars, _ := container["env"].([]interface{})
+	for _, ev := range envVars {
+		envVar, ok := ev.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		vf, ok := envVar["valueFrom"].(map[string]interface{})
+		if !ok {
+			continue
+		}
+		if ref, ok := vf["configMapKeyRef"].(map[string]interface{}); ok {
+			s.lowercaseMapKey(ref, "name")
+		}
+		if ref, ok := vf["secretKeyRef"].(map[string]interface{}); ok {
+			s.lowercaseMapKey(ref, "name")
+		}
+	}
+}
+
+// lowercaseMapKey 将 map 中指定 key 的字符串值转为小写
+func (s *DeployService) lowercaseMapKey(m map[string]interface{}, key string) {
+	if val, ok := m[key].(string); ok && val != "" {
+		sanitized := strings.ToLower(val)
+		if sanitized != val {
+			m[key] = sanitized
+			log.S().Infof("K8s 名称已规范化: %s → %s", val, sanitized)
+		}
+	}
 }
 
 // convertMapToStringKey 递归将所有 map 的 interface{} key 转为 string

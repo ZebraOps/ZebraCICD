@@ -21,7 +21,7 @@ gitlab:
 # ==================== Jenkins 配置 ====================
 jenkins:
   url: "http://192.168.192.87:8081/"
-  username: "admin"
+  username: "jenkins"
   password: "11b897a827d20d9984eeda5f4f2f1430c0"
   # 构建相关超时配置
   build_wait_timeout: "10m"
