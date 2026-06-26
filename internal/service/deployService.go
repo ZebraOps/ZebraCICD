@@ -925,14 +925,19 @@ func (s *DeployService) deployToDocker(task *model.DeployTask) error {
 		dockerEnvPrefix = "DOCKER_HOST=unix:///var/run/docker.sock"
 		s.updateStageLog(task.ID, "DEPLOYING", "已切换到标准 Docker socket: unix:///var/run/docker.sock")
 	}
+	// 构建带尾部空格的 docker 环境变量前缀，放在每个 docker 命令之前
+	dockerEnv := ""
+	if dockerEnvPrefix != "" {
+		dockerEnv = dockerEnvPrefix + " "
+	}
 
 	// 8. 登录私有镜像仓库（如果配置了凭据）
 	imageRepo := s.getImageRepoForTask(task)
 	registryLoggedIn := false
 	if imageRepo != nil && imageRepo.Username != "" && imageRepo.Password != "" {
 		registryURL := stripURLProtocol(imageRepo.URL)
-		loginCmd := fmt.Sprintf("%s echo '%s' | docker login %s -u %s --password-stdin 2>&1",
-			dockerEnvPrefix, escapeShellArg(imageRepo.Password), registryURL, imageRepo.Username)
+		loginCmd := fmt.Sprintf("echo '%s' | %sdocker login %s -u %s --password-stdin 2>&1",
+			escapeShellArg(imageRepo.Password), dockerEnv, registryURL, imageRepo.Username)
 		_, _, loginExit, _ := s.runSSHCommandWithLog(sshClient, task.ID, "DEPLOYING", loginCmd)
 		if loginExit != 0 {
 			s.updateStageLog(task.ID, "DEPLOYING", "镜像仓库登录失败，尝试继续拉取(可能为公开仓库)...")
@@ -947,7 +952,7 @@ func (s *DeployService) deployToDocker(task *model.DeployTask) error {
 	var pullErr error
 	for attempt := 1; attempt <= maxRetries; attempt++ {
 		stdout, stderr, exitCode, _ = s.runSSHCommandWithLog(sshClient, task.ID, "DEPLOYING",
-			fmt.Sprintf("%s cd '%s' && %s pull 2>&1", dockerEnvPrefix, composeDir, composeCmd))
+			fmt.Sprintf("cd '%s' && %s%s pull 2>&1", composeDir, dockerEnv, composeCmd))
 		if exitCode == 0 {
 			pullErr = nil
 			break
@@ -966,28 +971,33 @@ func (s *DeployService) deployToDocker(task *model.DeployTask) error {
 	}
 	s.updateStageLog(task.ID, "DEPLOYING", fmt.Sprintf("镜像拉取成功\n%s", stdout))
 
-	// 10. 启动服务
+	// 10. 停止并清理旧容器，释放端口（down 默认保留 volumes 和 images）
 	stdout, stderr, exitCode, _ = s.runSSHCommandWithLog(sshClient, task.ID, "DEPLOYING",
-		fmt.Sprintf("%s cd '%s' && %s up -d 2>&1", dockerEnvPrefix, composeDir, composeCmd))
+		fmt.Sprintf("cd '%s' && %s%s down --remove-orphans 2>&1 || true", composeDir, dockerEnv, composeCmd))
+	s.updateStageLog(task.ID, "DEPLOYING", fmt.Sprintf("旧容器清理完成\n%s", stdout))
+
+	// 11. 启动服务
+	stdout, stderr, exitCode, _ = s.runSSHCommandWithLog(sshClient, task.ID, "DEPLOYING",
+		fmt.Sprintf("cd '%s' && %s%s up -d 2>&1", composeDir, dockerEnv, composeCmd))
 	if exitCode != 0 {
 		return fmt.Errorf("%s up -d 失败 (exit=%d)\n=== STDOUT ===\n%s\n=== STDERR ===\n%s",
 			composeCmd, exitCode, stdout, stderr)
 	}
 	s.updateStageLog(task.ID, "DEPLOYING", fmt.Sprintf("服务启动成功\n%s", stdout))
 
-	// 11. 清理仓库登录状态
+	// 12. 清理仓库登录状态
 	if registryLoggedIn && imageRepo != nil {
 		registryURL := stripURLProtocol(imageRepo.URL)
 		s.runSSHCommandWithLog(sshClient, task.ID, "DEPLOYING",
-			fmt.Sprintf("%s docker logout %s 2>&1 || true", dockerEnvPrefix, registryURL))
+			fmt.Sprintf("%sdocker logout %s 2>&1 || true", dockerEnv, registryURL))
 	}
 
-	// 12. 检查服务状态
+	// 13. 检查服务状态
 	stdout, stderr, exitCode, _ = s.runSSHCommandWithLog(sshClient, task.ID, "DEPLOYING",
-		fmt.Sprintf("%s cd '%s' && %s ps 2>&1", dockerEnvPrefix, composeDir, composeCmd))
+		fmt.Sprintf("cd '%s' && %s%s ps 2>&1", composeDir, dockerEnv, composeCmd))
 	s.updateStageLog(task.ID, "DEPLOYING", fmt.Sprintf("服务状态:\n%s", stdout))
 
-	// 13. 保存compose路径到任务记录
+	// 14. 保存compose路径到任务记录
 	s.db.Model(&model.DeployTask{}).Where("id = ?", task.ID).Update("docker_compose_path", composePath)
 
 	return nil
