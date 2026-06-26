@@ -10,9 +10,13 @@ import (
 	"github.com/ZebraOps/ZebraCICD/internal/handler"
 	"github.com/ZebraOps/ZebraCICD/internal/model"
 	"github.com/ZebraOps/ZebraCICD/internal/types"
+	"github.com/ZebraOps/ZebraCICD/pkg/log"
+	"github.com/gorilla/websocket"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/kubernetes/scheme"
+	"k8s.io/client-go/tools/remotecommand"
 )
 
 type K8SService struct {
@@ -92,6 +96,12 @@ func (s *K8SService) ListPods(clusterID uint, namespace string) ([]types.PodInfo
 		}
 		ready := fmt.Sprintf("%d/%d", readyContainers, totalContainers)
 
+		// 提取 Pod 中的容器名称列表（用于终端 exec 时选择目标容器）
+		var containers []string
+		for _, c := range pod.Spec.Containers {
+			containers = append(containers, c.Name)
+		}
+
 		pods = append(pods, types.PodInfo{
 			Name:         pod.Name,
 			Status:       podStatus,
@@ -101,6 +111,7 @@ func (s *K8SService) ListPods(clusterID uint, namespace string) ([]types.PodInfo
 			Labels:       pod.Labels,
 			RestartCount: restartCount,
 			Ready:        ready,
+			Containers:   containers,
 		})
 	}
 
@@ -324,4 +335,99 @@ func (s *K8SService) GetPodLogs(clusterID uint, namespace, podName string, tailL
 		Namespace: namespace,
 		Container: container,
 	}, nil
+}
+
+// ExecPod 通过 WebSocket 桥接 K8s Pod exec（类似 kubectl exec -it）。
+// 在 Pod 中启动 /bin/sh，将 WebSocket 的读写流与 exec 的 stdin/stdout 对接。
+func (s *K8SService) ExecPod(clusterID uint, namespace, podName, container string, wsConn *websocket.Conn) error {
+	cluster, err := s.clusterRepo.GetByID(clusterID)
+	if err != nil {
+		return fmt.Errorf("集群 %d 不存在: %v", clusterID, err)
+	}
+
+	restConfig := core.NewK8sRestConfig(
+		cluster.ApiServer,
+		cluster.CaCert,
+		cluster.ClientCert,
+		cluster.ClientKey,
+		cluster.Token,
+		cluster.SkipVerify,
+	)
+
+	clientset, err := kubernetes.NewForConfig(restConfig)
+	if err != nil {
+		return fmt.Errorf("创建K8s客户端失败: %v", err)
+	}
+
+	// 构建 exec 请求
+	req := clientset.CoreV1().RESTClient().Post().
+		Resource("pods").
+		Name(podName).
+		Namespace(namespace).
+		SubResource("exec").
+		VersionedParams(&corev1.PodExecOptions{
+			Container: container,
+			Command:   []string{"/bin/sh"},
+			Stdin:     true,
+			Stdout:    true,
+			Stderr:    true,
+			TTY:       true,
+		}, scheme.ParameterCodec)
+
+	executor, err := remotecommand.NewSPDYExecutor(restConfig, "POST", req.URL())
+	if err != nil {
+		return fmt.Errorf("创建 exec 执行器失败: %v", err)
+	}
+
+	// WebSocket → exec stream 桥接
+	streamHandler := &wsStreamHandler{conn: wsConn}
+
+	err = executor.Stream(remotecommand.StreamOptions{
+		Stdin:  streamHandler,
+		Stdout: streamHandler,
+		Stderr: streamHandler,
+		Tty:    true,
+	})
+	if err != nil {
+		log.S().Warnf("Pod exec stream 结束: %v", err)
+	}
+
+	return nil
+}
+
+// wsStreamHandler 实现 remotecommand 所需的 read/write 接口，
+// 将 WebSocket 与 K8s SPDY exec stream 桥接。
+// 内部缓冲机制避免 Read 时 copy(p, msg) 截断数据。
+type wsStreamHandler struct {
+	conn   *websocket.Conn
+	buf    []byte // 缓存 ReadMessage 未读完的数据
+	bufOff int    // buf 中已消费的偏移量
+}
+
+func (w *wsStreamHandler) Read(p []byte) (int, error) {
+	// 如果内部缓冲还有数据，优先消费
+	if w.bufOff < len(w.buf) {
+		n := copy(p, w.buf[w.bufOff:])
+		w.bufOff += n
+		return n, nil
+	}
+	// 读新 WebSocket 消息，存入内部缓冲
+	_, msg, err := w.conn.ReadMessage()
+	if err != nil {
+		return 0, err
+	}
+	w.buf = msg
+	w.bufOff = 0
+	n := copy(p, msg)
+	w.bufOff = n
+	return n, nil
+}
+
+func (w *wsStreamHandler) Write(p []byte) (int, error) {
+	// 使用 BinaryMessage 传输终端数据，避免非 UTF-8 字节被 TextMessage 拒绝
+	err := w.conn.WriteMessage(websocket.BinaryMessage, p)
+	if err != nil {
+		return 0, err
+	}
+	return len(p), nil
 }

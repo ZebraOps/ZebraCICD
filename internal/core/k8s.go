@@ -15,21 +15,25 @@ type K8sClient struct {
 
 // NewK8sClientFromClusterConfig 根据集群配置创建K8s客户端
 func NewK8sClientFromClusterConfig(apiServer, caCert, clientCert, clientKey, token string, skipVerify bool) (*kubernetes.Clientset, error) {
+	config := NewK8sRestConfig(apiServer, caCert, clientCert, clientKey, token, skipVerify)
+	return kubernetes.NewForConfig(config)
+}
+
+// NewK8sRestConfig 根据集群配置构建 *rest.Config（供 exec/logs 等场景复用）
+func NewK8sRestConfig(apiServer, caCert, clientCert, clientKey, token string, skipVerify bool) *rest.Config {
 	var config *rest.Config
 
 	if token != "" {
-		// 使用Token认证
 		config = &rest.Config{
-			Host: apiServer,
+			Host:        apiServer,
+			BearerToken: token,
 			TLSClientConfig: rest.TLSClientConfig{
 				CAData:   []byte(caCert),
 				CertData: []byte(clientCert),
 				KeyData:  []byte(clientKey),
 			},
-			BearerToken: token,
 		}
 	} else {
-		// 使用证书认证
 		config = &rest.Config{
 			Host: apiServer,
 			TLSClientConfig: rest.TLSClientConfig{
@@ -40,12 +44,11 @@ func NewK8sClientFromClusterConfig(apiServer, caCert, clientCert, clientKey, tok
 		}
 	}
 
-	// 根据SkipVerify字段决定是否跳过证书验证
 	if skipVerify {
 		config.TLSClientConfig.Insecure = true
 	}
 
-	return kubernetes.NewForConfig(config)
+	return config
 }
 
 // NewK8sClientFromKubeConfig 从kubeconfig文件创建K8s客户端

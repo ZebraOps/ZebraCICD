@@ -7,8 +7,14 @@ import (
 	"github.com/ZebraOps/ZebraCICD/internal/model"
 	"github.com/ZebraOps/ZebraCICD/internal/service"
 	"github.com/ZebraOps/ZebraCICD/internal/types"
+	"github.com/ZebraOps/ZebraCICD/pkg/log"
 	"github.com/gin-gonic/gin"
+	"github.com/gorilla/websocket"
 )
+
+var k8sUpgrader = websocket.Upgrader{
+	CheckOrigin: func(r *http.Request) bool { return true },
+}
 
 // GetClusterByIDHandler 根据ID获取K8s集群
 // @Summary 根据ID获取K8s集群
@@ -362,6 +368,11 @@ func RegisterK8SRoutes(r *gin.Engine, svc *service.K8SService) {
 				GetPodLogsHandler(c, svc)
 			})
 
+			// Pod exec WebSocket 终端（类似 kubectl exec -it）
+			clusters.GET("/:id/pods/:podName/exec", func(c *gin.Context) {
+				ExecPodHandler(c, svc)
+			})
+
 			// 获取命名空间列表
 			clusters.GET("/:id/namespaces", func(c *gin.Context) {
 				ListNamespacesHandler(c, svc)
@@ -389,6 +400,48 @@ func ListNamespacesHandler(c *gin.Context, svc *service.K8SService) {
 		return
 	}
 	types.Success(c, namespaces)
+}
+
+// ExecPodHandler 通过 WebSocket 在 K8s Pod 中执行交互式终端
+// @Summary 进入 Pod 终端
+// @Description 通过 WebSocket 连接到 K8s Pod 的交互式 shell（类似 kubectl exec -it）
+// @Tags k8s
+// @Param id path int true "集群ID"
+// @Param podName path string true "Pod名称"
+// @Param namespace query string false "命名空间" default(default)
+// @Param container query string false "容器名称"
+// @Success 101 {object} object "Switching Protocols"
+// @Router /api/k8s/clusters/{id}/pods/{podName}/exec [get]
+func ExecPodHandler(c *gin.Context, svc *service.K8SService) {
+	idStr := c.Param("id")
+	id, err := strconv.Atoi(idStr)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id format"})
+		return
+	}
+
+	podName := c.Param("podName")
+	if podName == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "podName is required"})
+		return
+	}
+
+	namespace := c.Query("namespace")
+	if namespace == "" {
+		namespace = "default"
+	}
+	container := c.Query("container")
+
+	wsConn, err := k8sUpgrader.Upgrade(c.Writer, c.Request, nil)
+	if err != nil {
+		log.S().Errorf("k8s exec websocket upgrade failed: %v", err)
+		return
+	}
+	defer wsConn.Close()
+
+	if err := svc.ExecPod(uint(id), namespace, podName, container, wsConn); err != nil {
+		log.S().Errorf("k8s exec pod failed: %v", err)
+	}
 }
 
 // GetPodLogsHandler 获取Pod日志

@@ -20,6 +20,7 @@ type PodInfo struct {
 	Labels       map[string]string `json:"labels"`
 	RestartCount int               `json:"restart_count"`
 	Ready        string            `json:"ready"`
+	Containers   []string          `json:"containers"`
 }
 
 // PodLogResponse K8s Pod 日志响应
