@@ -287,6 +287,68 @@ func (s *DeployService) RetryTask(taskID uint) (*model.DeployTask, error) {
 	return &task, nil
 }
 
+// RetryTaskFromStage 从指定阶段重试失败的任务
+// stage 可选值: "BUILDING"（从构建阶段重试，完整流水线）、"DEPLOYING"（仅重试部署阶段，跳过构建和推送）
+func (s *DeployService) RetryTaskFromStage(taskID uint, stage string) (*model.DeployTask, error) {
+	var task model.DeployTask
+	if err := s.db.First(&task, taskID).Error; err != nil {
+		return nil, fmt.Errorf("任务不存在: %w", err)
+	}
+
+	if task.Status != "FAILED" {
+		return nil, fmt.Errorf("只能重试失败的任务，当前状态: %s", task.Status)
+	}
+
+	switch stage {
+	case "BUILDING":
+		// 从构建阶段重试 = 完整流水线重试（与 RetryTask 行为一致）
+		return s.RetryTask(taskID)
+
+	case "DEPLOYING":
+		// 从部署阶段重试 = 仅重试部署，跳过构建和推送
+		// 校验：构建阶段必须已成功完成
+		buildStage, err := s.stageHistoryRepo.GetByTaskIDAndStage(taskID, "BUILDING")
+		if err != nil || buildStage == nil || buildStage.Status != "success" {
+			return nil, fmt.Errorf("构建阶段未成功完成，无法单独重试部署，请从构建阶段重试")
+		}
+
+		// 清理旧的部署阶段记录
+		s.db.Where("task_id = ? AND stage = ?", taskID, "DEPLOYING").Delete(&model.StageHistory{})
+
+		// 锁定任务状态，防止并发重试
+		result := s.db.Model(&model.DeployTask{}).Where("id = ? AND status = ?", taskID, "FAILED").Updates(map[string]interface{}{
+			"status":        "DEPLOYING",
+			"retry_count":   gorm.Expr("retry_count + 1"),
+			"finished_at":   nil,
+			"error_message": "",
+		})
+		if result.Error != nil {
+			return nil, fmt.Errorf("更新任务失败: %w", result.Error)
+		}
+		if result.RowsAffected == 0 {
+			return nil, fmt.Errorf("只能重试失败的任务")
+		}
+
+		// 入队仅部署任务
+		if err := s.queueClient.EnqueueDeployOnlyTask(taskID); err != nil {
+			s.db.Model(&model.DeployTask{}).Where("id = ?", taskID).Updates(map[string]interface{}{
+				"status":      "FAILED",
+				"retry_count": gorm.Expr("retry_count - 1"),
+			})
+			return nil, fmt.Errorf("部署重试入队失败: %w", err)
+		}
+
+		log.S().Infof("Task %d retry from DEPLOYING stage enqueued", taskID)
+
+	default:
+		return nil, fmt.Errorf("不支持的阶段: %s，可选值: BUILDING, DEPLOYING", stage)
+	}
+
+	// 重新加载以获取更新后的值
+	s.db.First(&task, taskID)
+	return &task, nil
+}
+
 // ProcessDeploymentTask 由 Asynq worker 调用，执行完整的 Jenkins→Registry→K8s 流程。
 func (s *DeployService) ProcessDeploymentTask(ctx context.Context, taskID uint) error {
 	var task model.DeployTask
@@ -716,13 +778,61 @@ func (s *DeployService) verifyImageInRegistryForTask(task *model.DeployTask) boo
 	return client.VerifyImageExists(task.RegistryProject, task.ImageName, task.ImageTag)
 }
 
+// getImageRepoForTask 根据部署任务关联的应用配置获取镜像仓库记录（用于 docker login）
+func (s *DeployService) getImageRepoForTask(task *model.DeployTask) *model.ImageRepository {
+	var appDeploy model.ApplicationDeployment
+	if err := s.db.Where("application_id = ? AND environment_id = ?", task.ProjectID, task.EnvID).First(&appDeploy).Error; err == nil {
+		if appDeploy.ImageRepoID != nil && *appDeploy.ImageRepoID > 0 {
+			var imageRepo model.ImageRepository
+			if err := s.db.First(&imageRepo, *appDeploy.ImageRepoID).Error; err == nil {
+				return &imageRepo
+			}
+			log.S().Warnf("Failed to load ImageRepository %d for task %d: %v", *appDeploy.ImageRepoID, task.ID, err)
+		}
+	}
+	return nil
+}
+
+// escapeShellArg 转义 shell 单引号参数中的特殊字符
+func escapeShellArg(s string) string {
+	// 替换单引号为 '\'' (结束引用 → 转义单引号 → 重新开始引用)
+	return strings.ReplaceAll(s, "'", "'\\''")
+}
+
 // deployToDocker 通过SSH部署docker-compose到Linux主机
+// runSSHCommandWithLog 执行SSH命令并记录详细日志到StageHistory
+func (s *DeployService) runSSHCommandWithLog(sshClient *sshclient.SSHClient, taskID uint, stageName, cmd string) (stdout, stderr string, exitCode int, err error) {
+	// 执行命令
+	stdout, stderr, exitCode, err = sshClient.RunCommandOutput(cmd)
+
+	// 构建完整日志输出
+	fullLog := fmt.Sprintf("命令: %s\n退出码: %d\n=== STDOUT ===\n%s\n=== STDERR ===\n%s",
+		cmd, exitCode, stdout, stderr)
+
+	// 更新StageHistory的LogSummary
+	stageHistory, getErr := s.stageHistoryRepo.GetByTaskIDAndStage(taskID, stageName)
+	if getErr == nil && stageHistory != nil {
+		stageHistory.LogSummary = fullLog
+		if exitCode != 0 {
+			stageHistory.ErrorMessage = fmt.Sprintf("命令执行失败 (exit=%d)", exitCode)
+		}
+		s.stageHistoryRepo.Update(stageHistory)
+	}
+
+	log.S().Infof("Task %d [%s]: exit=%d, stdout=%d bytes, stderr=%d bytes",
+		taskID, stageName, exitCode, len(stdout), len(stderr))
+
+	return stdout, stderr, exitCode, err
+}
+
 func (s *DeployService) deployToDocker(task *model.DeployTask) error {
 	// 1. 获取目标服务器信息
 	server, err := s.serverRepo.GetByID(task.ServerID)
 	if err != nil {
+		s.updateStageLog(task.ID, "DEPLOYING", fmt.Sprintf("获取服务器失败: %v", err))
 		return fmt.Errorf("获取服务器 %d 失败: %v", task.ServerID, err)
 	}
+	s.updateStageLog(task.ID, "DEPLOYING", fmt.Sprintf("目标服务器: %s (%s)", server.Host, server.Username))
 
 	// 2. 获取部署模板（必须指定模板ID且类型为docker）
 	if task.DeploymentTemplateID == nil || *task.DeploymentTemplateID == 0 {
@@ -735,9 +845,9 @@ func (s *DeployService) deployToDocker(task *model.DeployTask) error {
 	if deploymentTemplate.TemplateType != "docker" {
 		return fmt.Errorf("模板 %d 类型为 '%s'，期望 'docker'", deploymentTemplate.ID, deploymentTemplate.TemplateType)
 	}
+	s.updateStageLog(task.ID, "DEPLOYING", fmt.Sprintf("部署模板: %s (ID=%d)", deploymentTemplate.Name, deploymentTemplate.ID))
 
 	// 3. 渲染模板内容
-	// 3. 渲染模板内容（包含自定义变量）
 	customVars := map[string]interface{}{}
 	if deploymentTemplate.Variables != "" {
 		if err := json.Unmarshal([]byte(deploymentTemplate.Variables), &customVars); err != nil {
@@ -745,13 +855,16 @@ func (s *DeployService) deployToDocker(task *model.DeployTask) error {
 		}
 	}
 	renderedYAML := s.renderDockerTemplate(deploymentTemplate.Content, task, customVars)
+	s.updateStageLog(task.ID, "DEPLOYING", fmt.Sprintf("渲染模板完成，YAML长度: %d bytes", len(renderedYAML)))
 
 	// 4. 创建SSH客户端
 	sshClient, err := s.createSSHClientFromServer(server)
 	if err != nil {
+		s.updateStageLog(task.ID, "DEPLOYING", fmt.Sprintf("SSH连接失败: %v", err))
 		return fmt.Errorf("SSH连接 %s 失败: %v", server.Host, err)
 	}
 	defer sshClient.Close()
+	s.updateStageLog(task.ID, "DEPLOYING", fmt.Sprintf("SSH连接成功: %s@%s:%d", server.Username, server.Host, server.Port))
 
 	// 5. 创建远端部署目录
 	deployBase := s.cfg.DeployBasePath
@@ -759,36 +872,140 @@ func (s *DeployService) deployToDocker(task *model.DeployTask) error {
 		deployBase = "/opt/zebra-deploy"
 	}
 	composeDir := fmt.Sprintf("%s/%s", deployBase, task.DeploymentName)
-	_, _, exitCode, _ := sshClient.RunCommandOutput(fmt.Sprintf("mkdir -p %s", composeDir))
+
+	stdout, stderr, exitCode, _ := s.runSSHCommandWithLog(sshClient, task.ID, "DEPLOYING",
+		fmt.Sprintf("mkdir -p '%s'", composeDir))
 	if exitCode != 0 {
-		return fmt.Errorf("创建部署目录 %s 失败 (exit=%d)", composeDir, exitCode)
+		return fmt.Errorf("创建部署目录 %s 失败 (exit=%d)\nSTDOUT: %s\nSTDERR: %s",
+			composeDir, exitCode, stdout, stderr)
 	}
+	s.updateStageLog(task.ID, "DEPLOYING", fmt.Sprintf("创建部署目录成功: %s", composeDir))
 
 	// 6. 上传渲染后的docker-compose.yml
 	composePath := fmt.Sprintf("%s/docker-compose.yml", composeDir)
 	if err := sshClient.UploadFile(composePath, []byte(renderedYAML)); err != nil {
+		s.updateStageLog(task.ID, "DEPLOYING", fmt.Sprintf("上传docker-compose.yml失败: %v", err))
 		return fmt.Errorf("上传 docker-compose.yml 失败: %v", err)
 	}
-	log.S().Infof("uploaded docker-compose.yml to %s:%s", server.Host, composePath)
+	s.updateStageLog(task.ID, "DEPLOYING", fmt.Sprintf("上传docker-compose.yml成功: %s", composePath))
 
-	// 7. 拉取镜像
-	_, stderr, exitCode, _ := sshClient.RunCommandOutput(fmt.Sprintf("cd %s && docker-compose pull 2>&1", composeDir))
+	// 7. 检测可用的 docker compose 命令（优先插件版，回退独立版）
+	composeCmd := "docker compose"
+	stdout, stderr, exitCode, _ = s.runSSHCommandWithLog(sshClient, task.ID, "DEPLOYING",
+		"docker compose version 2>&1")
 	if exitCode != 0 {
-		return fmt.Errorf("docker-compose pull 失败 (exit=%d): %s", exitCode, stderr)
+		// 插件版不可用，尝试旧版 docker-compose
+		stdout2, _, exit2, _ := s.runSSHCommandWithLog(sshClient, task.ID, "DEPLOYING",
+			"docker-compose --version 2>&1")
+		if exit2 != 0 {
+			return fmt.Errorf("目标服务器未安装docker compose\nSTDOUT: %s\nSTDERR: %s", stdout, stderr)
+		}
+		composeCmd = "docker-compose"
+		stdout = stdout2
 	}
-	log.S().Infof("docker-compose pull succeeded on %s", server.Host)
+	s.updateStageLog(task.ID, "DEPLOYING", fmt.Sprintf("Docker Compose版本 (%s): %s", composeCmd, strings.TrimSpace(stdout)))
 
-	// 8. 启动服务
-	_, stderr, exitCode, _ = sshClient.RunCommandOutput(fmt.Sprintf("cd %s && docker-compose up -d 2>&1", composeDir))
+	// 7b. 检测 Docker daemon 连通性，处理 DOCKER_HOST 指向错误 socket 的情况
+	//     部分服务器上 Docker 客户端可能配置为 Docker Desktop socket 而非标准系统 socket
+	dockerEnvPrefix := ""
+	_, dockerInfoStderr, dockerInfoExit, _ := s.runSSHCommandWithLog(sshClient, task.ID, "DEPLOYING",
+		"docker info 2>&1")
+	if dockerInfoExit != 0 {
+		s.updateStageLog(task.ID, "DEPLOYING", fmt.Sprintf("Docker daemon 默认连接失败，尝试标准 socket: %s",
+			strings.TrimSpace(dockerInfoStderr)))
+		// 尝试标准 Linux Docker daemon socket
+		_, fallbackStderr, fallbackExit, _ := s.runSSHCommandWithLog(sshClient, task.ID, "DEPLOYING",
+			"DOCKER_HOST=unix:///var/run/docker.sock docker info 2>&1")
+		if fallbackExit != 0 {
+			s.updateStageLog(task.ID, "DEPLOYING", fmt.Sprintf("Docker daemon 连接失败 (标准socket): %s",
+				strings.TrimSpace(fallbackStderr)))
+			return fmt.Errorf("Docker daemon 不可达，请检查目标服务器 Docker 是否正常运行\n默认 socket: %s\n标准 socket: %s",
+				strings.TrimSpace(dockerInfoStderr), strings.TrimSpace(fallbackStderr))
+		}
+		dockerEnvPrefix = "DOCKER_HOST=unix:///var/run/docker.sock"
+		s.updateStageLog(task.ID, "DEPLOYING", "已切换到标准 Docker socket: unix:///var/run/docker.sock")
+	}
+
+	// 8. 登录私有镜像仓库（如果配置了凭据）
+	imageRepo := s.getImageRepoForTask(task)
+	registryLoggedIn := false
+	if imageRepo != nil && imageRepo.Username != "" && imageRepo.Password != "" {
+		registryURL := stripURLProtocol(imageRepo.URL)
+		loginCmd := fmt.Sprintf("%s echo '%s' | docker login %s -u %s --password-stdin 2>&1",
+			dockerEnvPrefix, escapeShellArg(imageRepo.Password), registryURL, imageRepo.Username)
+		_, _, loginExit, _ := s.runSSHCommandWithLog(sshClient, task.ID, "DEPLOYING", loginCmd)
+		if loginExit != 0 {
+			s.updateStageLog(task.ID, "DEPLOYING", "镜像仓库登录失败，尝试继续拉取(可能为公开仓库)...")
+		} else {
+			registryLoggedIn = true
+			s.updateStageLog(task.ID, "DEPLOYING", fmt.Sprintf("镜像仓库登录成功: %s", registryURL))
+		}
+	}
+
+	// 9. 拉取镜像（带重试）
+	maxRetries := 3
+	var pullErr error
+	for attempt := 1; attempt <= maxRetries; attempt++ {
+		stdout, stderr, exitCode, _ = s.runSSHCommandWithLog(sshClient, task.ID, "DEPLOYING",
+			fmt.Sprintf("%s cd '%s' && %s pull 2>&1", dockerEnvPrefix, composeDir, composeCmd))
+		if exitCode == 0 {
+			pullErr = nil
+			break
+		}
+		if attempt < maxRetries {
+			msg := fmt.Sprintf("镜像拉取失败 (attempt %d/%d), 5秒后重试...\nSTDERR: %s", attempt, maxRetries, stderr)
+			s.updateStageLog(task.ID, "DEPLOYING", msg)
+			time.Sleep(5 * time.Second)
+		} else {
+			pullErr = fmt.Errorf("%s pull 失败 (exit=%d), 已重试%d次\n=== STDOUT ===\n%s\n=== STDERR ===\n%s",
+				composeCmd, exitCode, maxRetries, stdout, stderr)
+		}
+	}
+	if pullErr != nil {
+		return pullErr
+	}
+	s.updateStageLog(task.ID, "DEPLOYING", fmt.Sprintf("镜像拉取成功\n%s", stdout))
+
+	// 10. 启动服务
+	stdout, stderr, exitCode, _ = s.runSSHCommandWithLog(sshClient, task.ID, "DEPLOYING",
+		fmt.Sprintf("%s cd '%s' && %s up -d 2>&1", dockerEnvPrefix, composeDir, composeCmd))
 	if exitCode != 0 {
-		return fmt.Errorf("docker-compose up -d 失败 (exit=%d): %s", exitCode, stderr)
+		return fmt.Errorf("%s up -d 失败 (exit=%d)\n=== STDOUT ===\n%s\n=== STDERR ===\n%s",
+			composeCmd, exitCode, stdout, stderr)
 	}
-	log.S().Infof("docker-compose up -d succeeded on %s", server.Host)
+	s.updateStageLog(task.ID, "DEPLOYING", fmt.Sprintf("服务启动成功\n%s", stdout))
 
-	// 9. 保存compose路径到任务记录
+	// 11. 清理仓库登录状态
+	if registryLoggedIn && imageRepo != nil {
+		registryURL := stripURLProtocol(imageRepo.URL)
+		s.runSSHCommandWithLog(sshClient, task.ID, "DEPLOYING",
+			fmt.Sprintf("%s docker logout %s 2>&1 || true", dockerEnvPrefix, registryURL))
+	}
+
+	// 12. 检查服务状态
+	stdout, stderr, exitCode, _ = s.runSSHCommandWithLog(sshClient, task.ID, "DEPLOYING",
+		fmt.Sprintf("%s cd '%s' && %s ps 2>&1", dockerEnvPrefix, composeDir, composeCmd))
+	s.updateStageLog(task.ID, "DEPLOYING", fmt.Sprintf("服务状态:\n%s", stdout))
+
+	// 13. 保存compose路径到任务记录
 	s.db.Model(&model.DeployTask{}).Where("id = ?", task.ID).Update("docker_compose_path", composePath)
 
 	return nil
+}
+
+// updateStageLog 快速更新阶段的日志摘要
+func (s *DeployService) updateStageLog(taskID uint, stage, message string) {
+	stageHistory, err := s.stageHistoryRepo.GetByTaskIDAndStage(taskID, stage)
+	if err == nil && stageHistory != nil {
+		//追加日志，保留之前的内容
+		if stageHistory.LogSummary != "" {
+			stageHistory.LogSummary = stageHistory.LogSummary + "\n" + message
+		} else {
+			stageHistory.LogSummary = message
+		}
+		s.stageHistoryRepo.Update(stageHistory)
+	}
+	log.S().Infof("Task %d [%s]: %s", taskID, stage, message)
 }
 
 // renderDockerTemplate 渲染Docker部署模板（docker-compose YAML）
@@ -802,6 +1019,8 @@ func (s *DeployService) renderDockerTemplate(templateContent string, task *model
 	}
 
 	rendered := templateContent
+	// 将 DB 中可能残留的 JSON 转义换行符(\n字面量)转换为实际换行符
+	// 注意：此操作必须在变量替换之前执行，确保仅影响模板结构，不会误替换变量值中的字面量
 	rendered = strings.ReplaceAll(rendered, "\\n", "\n")
 	rendered = strings.ReplaceAll(rendered, "\r\n", "\n")
 	rendered = strings.ReplaceAll(rendered, "\r", "\n")

@@ -269,6 +269,52 @@ func retryDeployTaskHandler(c *gin.Context, svc *service.DeployService) {
 	types.Success(c, gin.H{"task_id": task.ID, "retry_count": task.RetryCount})
 }
 
+// retryDeployTaskStageHandler 从指定阶段重试失败的任务
+// @Summary 从指定阶段重试失败的任务
+// @Description 支持从 BUILDING（完整重试）或 DEPLOYING（仅部署）阶段重试失败的任务
+// @Tags deploys
+// @Produce json
+// @Param id path int true "任务ID"
+// @Param stage body object true "重试阶段 {\"stage\": \"BUILDING\"|\"DEPLOYING\"}"
+// @Success 200 {object} types.Response
+// @Failure 400 {object} types.Response
+// @Failure 500 {object} types.Response
+// @Router /api/deploys/{id}/retry-stage [post]
+func retryDeployTaskStageHandler(c *gin.Context, svc *service.DeployService) {
+	idStr := c.Param("id")
+	id, err := strconv.Atoi(idStr)
+	if err != nil {
+		types.Error(c, http.StatusBadRequest, "invalid id format")
+		return
+	}
+
+	var req struct {
+		Stage string `json:"stage" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		types.Error(c, http.StatusBadRequest, "stage is required (BUILDING or DEPLOYING)")
+		return
+	}
+
+	if req.Stage != "BUILDING" && req.Stage != "DEPLOYING" {
+		types.Error(c, http.StatusBadRequest, "stage must be BUILDING or DEPLOYING")
+		return
+	}
+
+	task, err := svc.RetryTaskFromStage(uint(id), req.Stage)
+	if err != nil {
+		if strings.Contains(err.Error(), "只能重试") || strings.Contains(err.Error(), "不支持的阶段") ||
+			strings.Contains(err.Error(), "构建阶段未成功") || strings.Contains(err.Error(), "任务不存在") {
+			types.Error(c, http.StatusBadRequest, err.Error())
+		} else {
+			types.Error(c, http.StatusInternalServerError, err.Error())
+		}
+		return
+	}
+
+	types.Success(c, gin.H{"task_id": task.ID, "retry_count": task.RetryCount, "stage": req.Stage})
+}
+
 // getAvailableTemplatesHandler 获取创建任务时可选的构建/部署模板
 // @Summary 获取创建任务时可选的构建/部署模板
 // @Description 根据应用ID获取可用的构建模板和部署模板列表
@@ -654,6 +700,11 @@ func RegisterDeployRoutes(r *gin.Engine, svc *service.DeployService) {
 		// retry failed deploy task
 		g.POST("/:id/retry", func(c *gin.Context) {
 			retryDeployTaskHandler(c, svc)
+		})
+
+		// retry failed deploy task from specific stage
+		g.POST("/:id/retry-stage", func(c *gin.Context) {
+			retryDeployTaskStageHandler(c, svc)
 		})
 
 		// 回滚相关
