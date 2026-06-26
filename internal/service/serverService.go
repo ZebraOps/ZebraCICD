@@ -89,6 +89,9 @@ func (s *ServerService) ListContainers(serverID uint) ([]model.DockerContainer, 
 	}
 	defer sshClient.Close()
 
+	// Detect DOCKER_HOST compatibility (mirrors deployToDocker fallback logic)
+	dockerEnv := s.detectDockerEnv(sshClient)
+
 	session, err := sshClient.NewSession()
 	if err != nil {
 		return nil, err
@@ -96,7 +99,7 @@ func (s *ServerService) ListContainers(serverID uint) ([]model.DockerContainer, 
 	defer session.Close()
 
 	// 执行docker ps命令获取容器列表
-	output, err := session.Output("docker ps --format '{{.ID}}\\t{{.Names}}\\t{{.Image}}\\t{{.Command}}\\t{{.Status}}\\t{{.Ports}}\\t{{.Labels}}'")
+	output, err := session.Output(dockerEnv + "docker ps --format '{{.ID}}\\t{{.Names}}\\t{{.Image}}\\t{{.Command}}\\t{{.Status}}\\t{{.Ports}}\\t{{.Labels}}'")
 	if err != nil {
 		return nil, err
 	}
@@ -145,7 +148,7 @@ func (s *ServerService) ListContainers(serverID uint) ([]model.DockerContainer, 
 			container.Labels = string(labelsJSON)
 
 			// 获取容器创建时间
-			creationTime, err := s.getContainerCreationTime(sshClient, container.ID)
+			creationTime, err := s.getContainerCreationTime(sshClient, container.ID, dockerEnv)
 			if err == nil {
 				container.CreatedAt = timeutil.JSONTime(creationTime)
 			}
@@ -155,6 +158,38 @@ func (s *ServerService) ListContainers(serverID uint) ([]model.DockerContainer, 
 	}
 
 	return containers, nil
+}
+
+// detectDockerEnv detects Docker daemon socket connectivity on the target server.
+// If the default Docker socket fails but the standard unix socket works (common when
+// DOCKER_HOST points to a Docker Desktop socket), returns the env prefix to use.
+// Mirrors the same detection logic in deployService.deployToDocker.
+func (s *ServerService) detectDockerEnv(client *ssh.Client) string {
+	// Try default docker connection
+	session, err := client.NewSession()
+	if err != nil {
+		return ""
+	}
+	defer session.Close()
+
+	_, err = session.CombinedOutput("docker info 2>&1")
+	if err == nil {
+		return "" // default socket works
+	}
+
+	// Fallback to standard Linux Docker daemon socket
+	session2, err2 := client.NewSession()
+	if err2 != nil {
+		return ""
+	}
+	defer session2.Close()
+
+	_, err2 = session2.CombinedOutput("DOCKER_HOST=unix:///var/run/docker.sock docker info 2>&1")
+	if err2 == nil {
+		return "DOCKER_HOST=unix:///var/run/docker.sock "
+	}
+
+	return "" // both failed — let the actual command return the error
 }
 
 // createSSHClient 创建SSH客户端
@@ -191,14 +226,14 @@ func (s *ServerService) createSSHClient(server *model.Server) (*ssh.Client, erro
 }
 
 // getContainerCreationTime 获取容器创建时间
-func (s *ServerService) getContainerCreationTime(client *ssh.Client, containerID string) (time.Time, error) {
+func (s *ServerService) getContainerCreationTime(client *ssh.Client, containerID, dockerEnv string) (time.Time, error) {
 	session, err := client.NewSession()
 	if err != nil {
 		return time.Time{}, err
 	}
 	defer session.Close()
 
-	output, err := session.Output(fmt.Sprintf("docker inspect --format='{{.Created}}' %s", containerID))
+	output, err := session.Output(fmt.Sprintf(dockerEnv+"docker inspect --format='{{.Created}}' %s", containerID))
 	if err != nil {
 		return time.Time{}, err
 	}
@@ -237,13 +272,16 @@ func (s *ServerService) GetContainerLogs(serverID uint, containerID string, tail
 	}
 	defer sshClient.Close()
 
+	// Detect DOCKER_HOST compatibility (mirrors deployToDocker fallback logic)
+	dockerEnv := s.detectDockerEnv(sshClient)
+
 	session, err := sshClient.NewSession()
 	if err != nil {
 		return nil, err
 	}
 	defer session.Close()
 
-	cmd := fmt.Sprintf("docker logs --tail %d %s", tailLines, containerID)
+	cmd := fmt.Sprintf(dockerEnv+"docker logs --tail %d %s", tailLines, containerID)
 	output, err := session.CombinedOutput(cmd)
 	if err != nil {
 		return nil, fmt.Errorf("获取容器 %s 日志失败: %v", containerID, err)

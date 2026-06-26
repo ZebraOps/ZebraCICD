@@ -32,7 +32,6 @@ func (s *DeploymentTemplateService) CreateDeploymentTemplate(template *model.Dep
 		DeploymentTemplateID: template.ID,
 		Modifier:             template.Creator,
 		Name:                 template.Name,
-		DisplayName:          template.DisplayName,
 		Description:          template.Description,
 		TemplateType:         template.TemplateType,
 		Content:              template.Content,
@@ -77,7 +76,6 @@ func (s *DeploymentTemplateService) UpdateDeploymentTemplate(ctx context.Context
 		DeploymentTemplateID: template.ID,
 		Modifier:             template.Updater,
 		Name:                 template.Name,
-		DisplayName:          template.DisplayName,
 		Description:          template.Description,
 		TemplateType:         template.TemplateType,
 		Content:              template.Content,
@@ -140,7 +138,6 @@ func (s *DeploymentTemplateService) RollbackDeploymentTemplate(templateID, histo
 	}
 
 	template.Name = history.Name
-	template.DisplayName = history.DisplayName
 	template.Description = history.Description
 	template.TemplateType = history.TemplateType
 	template.Content = history.Content
@@ -156,7 +153,6 @@ func (s *DeploymentTemplateService) RollbackDeploymentTemplate(templateID, histo
 		DeploymentTemplateID: template.ID,
 		Modifier:             template.Updater,
 		Name:                 template.Name,
-		DisplayName:          template.DisplayName,
 		Description:          template.Description,
 		TemplateType:         template.TemplateType,
 		Content:              template.Content,

@@ -22,6 +22,9 @@ func (s *ServerService) ExecContainer(serverID uint, containerID, command string
 	}
 	defer sshClient.Close()
 
+	// Detect DOCKER_HOST compatibility (mirrors deployToDocker fallback logic)
+	dockerEnv := s.detectDockerEnv(sshClient)
+
 	session, err := sshClient.NewSession()
 	if err != nil {
 		return nil, err
@@ -29,7 +32,7 @@ func (s *ServerService) ExecContainer(serverID uint, containerID, command string
 	defer session.Close()
 
 	// 执行docker exec命令
-	fullCmd := fmt.Sprintf("docker exec %s %s", containerID, command)
+	fullCmd := fmt.Sprintf(dockerEnv+"docker exec %s %s", containerID, command)
 	output, err := session.CombinedOutput(fullCmd)
 
 	return &types.ContainerExecResponse{
@@ -51,6 +54,9 @@ func (s *ServerService) AttachContainer(serverID uint, containerID string, wsCon
 	}
 	defer sshClient.Close()
 
+	// Detect DOCKER_HOST compatibility (mirrors deployToDocker fallback logic)
+	dockerEnv := s.detectDockerEnv(sshClient)
+
 	session, err := sshClient.NewSession()
 	if err != nil {
 		return err
@@ -68,7 +74,14 @@ func (s *ServerService) AttachContainer(serverID uint, containerID string, wsCon
 		return err
 	}
 
-	// 启动docker attach命令
+	// Start the docker attach command (was missing — the command was never executed)
+	attachCmd := dockerEnv + "docker attach " + containerID
+	if err := session.Start(attachCmd); err != nil {
+		log.S().Errorf("start docker attach failed: %v", err)
+		return err
+	}
+
+	// 从容器 stdout 读取并转发到 WebSocket
 	go func() {
 		scanner := bufio.NewScanner(stdout)
 		for scanner.Scan() {
@@ -79,7 +92,7 @@ func (s *ServerService) AttachContainer(serverID uint, containerID string, wsCon
 		}
 	}()
 
-	// 处理来自WebSocket的消息
+	// 处理来自WebSocket的消息 -> 转发到容器 stdin
 	for {
 		_, message, err := wsConn.ReadMessage()
 		if err != nil {

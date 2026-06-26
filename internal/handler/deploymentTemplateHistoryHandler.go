@@ -70,7 +70,6 @@ func (r *DeploymentTemplateHistoryRepository) GetHistoryByTemplateIDPaginated(te
 			DeploymentTemplateID: history.DeploymentTemplateID,
 			Modifier:             history.Modifier,
 			Name:                 history.Name,
-			DisplayName:          history.DisplayName,
 			Description:          history.Description,
 			TemplateType:         history.TemplateType,
 			Content:              history.Content,

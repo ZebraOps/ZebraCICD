@@ -117,9 +117,6 @@ func UpdateDeploymentTemplateHandler(c *gin.Context, svc *service.DeploymentTemp
 	if req.Name != "" {
 		existingTemplate.Name = req.Name
 	}
-	if req.DisplayName != "" {
-		existingTemplate.DisplayName = req.DisplayName
-	}
 	if req.Description != "" {
 		existingTemplate.Description = req.Description
 	}

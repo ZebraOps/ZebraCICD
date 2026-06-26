@@ -108,7 +108,6 @@ type DeploymentTemplateHistoryResponse struct {
 	DeploymentTemplateID uint              `json:"deployment_template_id"`
 	Modifier             string            `json:"modifier"`
 	Name                 string            `json:"name"`
-	DisplayName          string            `json:"display_name"`
 	Description          string            `json:"description"`
 	TemplateType         string            `json:"template_type"`
 	Content              string            `json:"content"`

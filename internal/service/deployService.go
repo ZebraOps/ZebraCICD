@@ -799,15 +799,31 @@ func escapeShellArg(s string) string {
 	return strings.ReplaceAll(s, "'", "'\\''")
 }
 
+// maskSensitive replaces all occurrences of each secret value in s with "***".
+// Used to prevent credentials from appearing in logs displayed to the frontend.
+func maskSensitive(s string, secrets ...string) string {
+	result := s
+	for _, secret := range secrets {
+		if secret != "" {
+			result = strings.ReplaceAll(result, secret, "***")
+		}
+	}
+	return result
+}
+
 // deployToDocker 通过SSH部署docker-compose到Linux主机
-// runSSHCommandWithLog 执行SSH命令并记录详细日志到StageHistory
-func (s *DeployService) runSSHCommandWithLog(sshClient *sshclient.SSHClient, taskID uint, stageName, cmd string) (stdout, stderr string, exitCode int, err error) {
+// runSSHCommandWithLog 执行SSH命令并记录详细日志到StageHistory。
+// Optional secrets are masked in the log output (e.g. registry passwords).
+func (s *DeployService) runSSHCommandWithLog(sshClient *sshclient.SSHClient, taskID uint, stageName, cmd string, secrets ...string) (stdout, stderr string, exitCode int, err error) {
 	// 执行命令
 	stdout, stderr, exitCode, err = sshClient.RunCommandOutput(cmd)
 
-	// 构建完整日志输出
+	// 构建日志安全的输出（屏蔽敏感信息）
+	logCmd := maskSensitive(cmd, secrets...)
+	logStdout := maskSensitive(stdout, secrets...)
+	logStderr := maskSensitive(stderr, secrets...)
 	fullLog := fmt.Sprintf("命令: %s\n退出码: %d\n=== STDOUT ===\n%s\n=== STDERR ===\n%s",
-		cmd, exitCode, stdout, stderr)
+		logCmd, exitCode, logStdout, logStderr)
 
 	// 更新StageHistory的LogSummary
 	stageHistory, getErr := s.stageHistoryRepo.GetByTaskIDAndStage(taskID, stageName)
@@ -938,7 +954,7 @@ func (s *DeployService) deployToDocker(task *model.DeployTask) error {
 		registryURL := stripURLProtocol(imageRepo.URL)
 		loginCmd := fmt.Sprintf("echo '%s' | %sdocker login %s -u %s --password-stdin 2>&1",
 			escapeShellArg(imageRepo.Password), dockerEnv, registryURL, imageRepo.Username)
-		_, _, loginExit, _ := s.runSSHCommandWithLog(sshClient, task.ID, "DEPLOYING", loginCmd)
+		_, _, loginExit, _ := s.runSSHCommandWithLog(sshClient, task.ID, "DEPLOYING", loginCmd, imageRepo.Password)
 		if loginExit != 0 {
 			s.updateStageLog(task.ID, "DEPLOYING", "镜像仓库登录失败，尝试继续拉取(可能为公开仓库)...")
 		} else {

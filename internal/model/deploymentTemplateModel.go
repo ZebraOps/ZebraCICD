@@ -8,7 +8,6 @@ type DeploymentTemplateHistory struct {
 	DeploymentTemplateID uint              `gorm:"index;comment:部署模板ID" json:"deployment_template_id"`
 	Modifier             string            `gorm:"size:100;comment:修改人" json:"modifier"`
 	Name                 string            `gorm:"size:255;comment:模板名称" json:"name"`
-	DisplayName          string            `gorm:"size:255;comment:显示名称" json:"display_name"`
 	Description          string            `gorm:"type:text;comment:模板描述" json:"description"`
 	TemplateType         string            `gorm:"size:50;comment:模板类型" json:"template_type"`
 	Content              string            `gorm:"type:text;comment:模板内容" json:"content"`
@@ -22,7 +21,6 @@ type DeploymentTemplateHistory struct {
 type DeploymentTemplate struct {
 	ID           uint              `gorm:"primaryKey" json:"id"`
 	Name         string            `gorm:"size:255;uniqueIndex;not null;comment:部署模板名称" json:"name"`
-	DisplayName  string            `gorm:"size:255;comment:显示名称" json:"display_name"`
 	Description  string            `gorm:"type:text;comment:部署模板描述" json:"description"`
 	TemplateType string            `gorm:"size:50;comment:模板类型(k8s/helm/docker/linux)" json:"template_type"`
 	Content      string            `gorm:"type:text;comment:模板内容(YAML/JSON格式)" json:"content"`
