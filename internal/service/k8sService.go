@@ -7,6 +7,7 @@ import (
 	"io"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/ZebraOps/ZebraCICD/internal/core"
@@ -395,77 +396,150 @@ func (s *K8SService) ExecPod(clusterID uint, namespace, podName, container strin
 		return fmt.Errorf("创建K8s客户端失败: %v", err)
 	}
 
-	// 构建 exec 请求
-	req := clientset.CoreV1().RESTClient().Post().
-		Resource("pods").
-		Name(podName).
-		Namespace(namespace).
-		SubResource("exec").
-		VersionedParams(&corev1.PodExecOptions{
-			Container: container,
-			Command:   []string{"/bin/sh"},
-			Stdin:     true,
-			Stdout:    true,
-			Stderr:    true,
-			TTY:       true,
-		}, scheme.ParameterCodec)
-
-	executor, err := remotecommand.NewSPDYExecutor(restConfig, "POST", req.URL())
-	if err != nil {
-		return fmt.Errorf("创建 exec 执行器失败: %v", err)
-	}
-
 	// WebSocket → exec stream 桥接
-	streamHandler := &wsStreamHandler{conn: wsConn}
+	streamHandler := newWSStreamHandler(wsConn)
+	defer streamHandler.Stop() // 确保 Stream 返回后 reader goroutine 退出
 
-	err = executor.Stream(remotecommand.StreamOptions{
-		Stdin:  streamHandler,
-		Stdout: streamHandler,
-		Stderr: streamHandler,
-		Tty:    true,
-	})
-	if err != nil {
-		log.S().Warnf("Pod exec stream 结束: %v", err)
+	// 尝试多个常见 shell（部分容器只含 /bin/bash 或无 /bin/sh）
+	shells := [][]string{{"/bin/sh"}, {"/bin/bash"}}
+	var lastErr error
+	for _, cmd := range shells {
+		req := clientset.CoreV1().RESTClient().Post().
+			Resource("pods").
+			Name(podName).
+			Namespace(namespace).
+			SubResource("exec").
+			VersionedParams(&corev1.PodExecOptions{
+				Container: container,
+				Command:   cmd,
+				Stdin:     true,
+				Stdout:    true,
+				Stderr:    true,
+				TTY:       true,
+			}, scheme.ParameterCodec)
+
+		executor, err := remotecommand.NewSPDYExecutor(restConfig, "POST", req.URL())
+		if err != nil {
+			lastErr = fmt.Errorf("创建 exec 执行器失败: %v", err)
+			continue
+		}
+
+		err = executor.StreamWithContext(context.Background(), remotecommand.StreamOptions{
+			Stdin:  streamHandler,
+			Stdout: streamHandler,
+			Stderr: streamHandler,
+			Tty:    true,
+		})
+		if err != nil {
+			log.S().Warnf("Pod exec stream (%v) 结束: %v", cmd, err)
+			lastErr = err
+			continue
+		}
+		// 成功，清空错误
+		lastErr = nil
+		break
+	}
+	if lastErr != nil {
+		errMsg := fmt.Sprintf("\r\n\x1b[31mPod exec 失败: %v\x1b[0m\r\n", lastErr)
+		wsConn.WriteMessage(websocket.BinaryMessage, []byte(errMsg))
 	}
 
 	return nil
 }
 
-// wsStreamHandler 实现 remotecommand 所需的 read/write 接口，
-// 将 WebSocket 与 K8s SPDY exec stream 桥接。
-// 内部缓冲机制避免 Read 时 copy(p, msg) 截断数据。
-type wsStreamHandler struct {
-	conn   *websocket.Conn
-	buf    []byte // 缓存 ReadMessage 未读完的数据
-	bufOff int    // buf 中已消费的偏移量
+// wsReadMsg 封装 WebSocket 读取结果，通过 channel 传递。
+type wsReadMsg struct {
+	data []byte
+	err  error
 }
 
+// wsStreamHandler 实现 remotecommand 所需的 io.Reader/io.Writer 接口，
+// 将 WebSocket 与 K8s SPDY exec stream 桥接。
+//
+// 关键设计：Read 不直接调用 conn.ReadMessage()，而是通过独立的 reader
+// goroutine 将消息写入 channel。这样当 Stream() 返回时，Stop() 可以
+// 触发 reader goroutine 退出，避免 Read 永久阻塞导致的 goroutine 泄漏。
+type wsStreamHandler struct {
+	conn      *websocket.Conn
+	readCh    chan wsReadMsg
+	done      chan struct{}
+	buf       []byte // 缓存未读完的数据
+	bufOff    int
+	closeOnce sync.Once
+}
+
+// newWSStreamHandler 创建 handler 并启动后台 reader goroutine。
+func newWSStreamHandler(conn *websocket.Conn) *wsStreamHandler {
+	h := &wsStreamHandler{
+		conn:   conn,
+		readCh: make(chan wsReadMsg, 1),
+		done:   make(chan struct{}),
+	}
+	go h.readLoop()
+	return h
+}
+
+// readLoop 在后台持续从 WebSocket 读取消息，通过 channel 交给 Read()。
+// 当 Stop() 关闭 done channel 时退出。
+func (w *wsStreamHandler) readLoop() {
+	for {
+		select {
+		case <-w.done:
+			return
+		default:
+		}
+		_, msg, err := w.conn.ReadMessage()
+		// 非阻塞发送：如果 done 已关闭则丢弃消息
+		select {
+		case w.readCh <- wsReadMsg{msg, err}:
+		case <-w.done:
+			return
+		}
+		if err != nil {
+			return // 连接关闭或出错，退出循环
+		}
+	}
+}
+
+// Read 实现 io.Reader。优先消费内部缓冲，然后从 channel 读取新消息。
 func (w *wsStreamHandler) Read(p []byte) (int, error) {
-	// 如果内部缓冲还有数据，优先消费
+	// 优先消费内部缓冲中未读完的数据
 	if w.bufOff < len(w.buf) {
 		n := copy(p, w.buf[w.bufOff:])
 		w.bufOff += n
 		return n, nil
 	}
-	// 读新 WebSocket 消息，存入内部缓冲
-	_, msg, err := w.conn.ReadMessage()
-	if err != nil {
-		return 0, err
+
+	// 从 channel 读取（阻塞直到有消息或 done 关闭）
+	select {
+	case msg := <-w.readCh:
+		if msg.err != nil {
+			return 0, msg.err
+		}
+		w.buf = msg.data
+		w.bufOff = 0
+		n := copy(p, msg.data)
+		w.bufOff = n
+		return n, nil
+	case <-w.done:
+		return 0, io.EOF
 	}
-	w.buf = msg
-	w.bufOff = 0
-	n := copy(p, msg)
-	w.bufOff = n
-	return n, nil
 }
 
+// Write 实现 io.Writer。使用 BinaryMessage 传输终端数据。
 func (w *wsStreamHandler) Write(p []byte) (int, error) {
-	// 使用 BinaryMessage 传输终端数据，避免非 UTF-8 字节被 TextMessage 拒绝
 	err := w.conn.WriteMessage(websocket.BinaryMessage, p)
 	if err != nil {
 		return 0, err
 	}
 	return len(p), nil
+}
+
+// Stop 通知 reader goroutine 退出。幂等（多次调用安全）。
+func (w *wsStreamHandler) Stop() {
+	w.closeOnce.Do(func() {
+		close(w.done)
+	})
 }
 
 // DeletePod 删除指定的 K8s Pod。

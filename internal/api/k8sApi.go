@@ -1,6 +1,7 @@
 package api
 
 import (
+	"fmt"
 	"net/http"
 	"strconv"
 
@@ -451,6 +452,9 @@ func ExecPodHandler(c *gin.Context, svc *service.K8SService) {
 
 	if err := svc.ExecPod(uint(id), namespace, podName, container, wsConn); err != nil {
 		log.S().Errorf("k8s exec pod failed: %v", err)
+		// 将错误发送到前端，让用户看到具体原因
+		errMsg := fmt.Sprintf("\x1b[31m连接失败: %v\x1b[0m", err)
+		wsConn.WriteMessage(websocket.BinaryMessage, []byte(errMsg))
 	}
 }
 
