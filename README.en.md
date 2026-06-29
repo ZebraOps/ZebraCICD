@@ -503,7 +503,7 @@ metadata:
   name: zebra-cluster-role
 rules:
   - apiGroups: [""]
-    resources: ["nodes", "pods", "pods/log", "services", "namespaces", "configmaps", "secrets", "events"]
+    resources: ["nodes", "pods", "pods/log", "pods/exec", "services", "namespaces", "configmaps", "secrets", "events"]
     verbs: ["create", "get", "list", "watch", "update", "patch", "delete"]
   - apiGroups: ["apps"]
     resources: ["deployments", "statefulsets", "daemonsets"]
