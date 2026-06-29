@@ -133,6 +133,78 @@ func GetContainerLogsHandler(c *gin.Context, svc *service.ServerService) {
 	types.Success(c, result)
 }
 
+// RestartContainerHandler 重启容器
+// @Summary 重启容器
+// @Description 重启指定的Docker容器
+// @Tags containers
+// @Produce json
+// @Param id path int true "服务器ID"
+// @Param containerID path string true "容器ID"
+// @Success 200 {object} map[string]string
+// @Failure 400 {object} map[string]string
+// @Failure 500 {object} map[string]string
+// @Router /api/servers/{id}/containers/{containerID}/restart [post]
+func RestartContainerHandler(c *gin.Context, svc *service.ServerService) {
+	serverIDStr := c.Param("id")
+	serverID, err := strconv.Atoi(serverIDStr)
+	if err != nil {
+		types.Error(c, http.StatusBadRequest, "invalid server id format")
+		return
+	}
+
+	containerID := c.Param("containerID")
+	if containerID == "" {
+		types.Error(c, http.StatusBadRequest, "containerID is required")
+		return
+	}
+
+	if err := svc.RestartContainer(uint(serverID), containerID); err != nil {
+		types.Error(c, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	types.Success(c, map[string]string{"message": "容器重启成功"})
+}
+
+// RemoveContainerHandler 删除容器
+// @Summary 删除容器
+// @Description 删除指定的Docker容器（可选force参数）
+// @Tags containers
+// @Produce json
+// @Param id path int true "服务器ID"
+// @Param containerID path string true "容器ID"
+// @Param force query bool false "是否强制删除"
+// @Success 200 {object} map[string]string
+// @Failure 400 {object} map[string]string
+// @Failure 500 {object} map[string]string
+// @Router /api/servers/{id}/containers/{containerID} [delete]
+func RemoveContainerHandler(c *gin.Context, svc *service.ServerService) {
+	serverIDStr := c.Param("id")
+	serverID, err := strconv.Atoi(serverIDStr)
+	if err != nil {
+		types.Error(c, http.StatusBadRequest, "invalid server id format")
+		return
+	}
+
+	containerID := c.Param("containerID")
+	if containerID == "" {
+		types.Error(c, http.StatusBadRequest, "containerID is required")
+		return
+	}
+
+	force := false
+	if forceStr := c.Query("force"); forceStr == "true" {
+		force = true
+	}
+
+	if err := svc.RemoveContainer(uint(serverID), containerID, force); err != nil {
+		types.Error(c, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	types.Success(c, map[string]string{"message": "容器删除成功"})
+}
+
 // RegisterContainerRoutes 注册容器相关路由
 func RegisterContainerRoutes(r *gin.Engine, svc *service.ServerService) {
 	g := r.Group("/api/servers/:id/containers")
@@ -155,6 +227,16 @@ func RegisterContainerRoutes(r *gin.Engine, svc *service.ServerService) {
 		// 连接到容器
 		g.GET("/:containerID/attach", func(c *gin.Context) {
 			AttachContainerHandler(c, svc)
+		})
+
+		// 重启容器
+		g.POST("/:containerID/restart", func(c *gin.Context) {
+			RestartContainerHandler(c, svc)
+		})
+
+		// 删除容器
+		g.DELETE("/:containerID", func(c *gin.Context) {
+			RemoveContainerHandler(c, svc)
 		})
 	}
 }

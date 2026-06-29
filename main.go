@@ -232,6 +232,7 @@ func main() {
 		&model.JenkinsPlatform{},
 		&model.JenkinsCredential{},
 		&model.StageHistory{},
+			&model.ContainerOperation{},
 	); err != nil {
 		log.S().Fatalf("auto migrate failed: %v", err)
 	}
@@ -274,6 +275,7 @@ func main() {
 	gitlabClient := core.NewGitLabClient(cfg.GitLabURL, cfg.GitLabToken)
 	serverRepo := handler.NewServerRepository(db)
 	stageHistoryRepo := handler.NewStageHistoryRepository(db)
+	containerOpRepo := handler.NewContainerOperationRepository(db)
 	deploySvc := service.NewDeployService(db, cfg, queueClient, serverRepo, stageHistoryRepo)
 	repoRepo := handler.NewRepoRepository(db)
 	repoSvc := service.NewRepoService(repoRepo, gitlabClient, cfg.GitLabURL, db)
@@ -344,6 +346,7 @@ func main() {
 	api.RegisterK8SRoutes(r, k8sSvc)
 	api.RegisterServerRoutes(r, serverSvc)
 	api.RegisterContainerRoutes(r, serverSvc)
+	api.RegisterContainerOperationRoutes(r, containerOpRepo)
 	api.RegisterEnvRoutes(r, envSvc)
 	api.RegisterCloudProviderRoutes(r, cloudProviderSvc)
 	api.RegisterDeploymentTemplateRoutes(r, deploymentTemplateSvc)

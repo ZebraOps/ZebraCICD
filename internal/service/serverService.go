@@ -292,3 +292,67 @@ func (s *ServerService) GetContainerLogs(serverID uint, containerID string, tail
 		ContainerID: containerID,
 	}, nil
 }
+
+// RestartContainer 重启 Docker 容器
+func (s *ServerService) RestartContainer(serverID uint, containerID string) error {
+	server, err := s.serverRepo.GetByID(serverID)
+	if err != nil {
+		return err
+	}
+
+	sshClient, err := s.createSSHClient(server)
+	if err != nil {
+		return err
+	}
+	defer sshClient.Close()
+
+	dockerEnv := s.detectDockerEnv(sshClient)
+
+	session, err := sshClient.NewSession()
+	if err != nil {
+		return err
+	}
+	defer session.Close()
+
+	cmd := fmt.Sprintf(dockerEnv+"docker restart %s", containerID)
+	output, err := session.CombinedOutput(cmd)
+	if err != nil {
+		return fmt.Errorf("重启容器 %s 失败: %v, output: %s", containerID, err, string(output))
+	}
+
+	return nil
+}
+
+// RemoveContainer 删除 Docker 容器（可选 force）
+func (s *ServerService) RemoveContainer(serverID uint, containerID string, force bool) error {
+	server, err := s.serverRepo.GetByID(serverID)
+	if err != nil {
+		return err
+	}
+
+	sshClient, err := s.createSSHClient(server)
+	if err != nil {
+		return err
+	}
+	defer sshClient.Close()
+
+	dockerEnv := s.detectDockerEnv(sshClient)
+
+	session, err := sshClient.NewSession()
+	if err != nil {
+		return err
+	}
+	defer session.Close()
+
+	forceFlag := ""
+	if force {
+		forceFlag = " -f"
+	}
+	cmd := fmt.Sprintf(dockerEnv+"docker rm%s %s", forceFlag, containerID)
+	output, err := session.CombinedOutput(cmd)
+	if err != nil {
+		return fmt.Errorf("删除容器 %s 失败: %v, output: %s", containerID, err, string(output))
+	}
+
+	return nil
+}
