@@ -2,8 +2,11 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/ZebraOps/ZebraCICD/internal/core"
@@ -96,10 +99,22 @@ func (s *K8SService) ListPods(clusterID uint, namespace string) ([]types.PodInfo
 		}
 		ready := fmt.Sprintf("%d/%d", readyContainers, totalContainers)
 
-		// 提取 Pod 中的容器名称列表（用于终端 exec 时选择目标容器）
-		var containers []string
-		for _, c := range pod.Spec.Containers {
-			containers = append(containers, c.Name)
+		// 提取 Pod 中的容器详情（名称、就绪、重启次数、镜像、状态）
+		var containers []types.ContainerInfo
+		for _, cs := range pod.Status.ContainerStatuses {
+			state := "running"
+			if cs.State.Waiting != nil {
+				state = "waiting"
+			} else if cs.State.Terminated != nil {
+				state = "terminated"
+			}
+			containers = append(containers, types.ContainerInfo{
+				Name:         cs.Name,
+				Ready:        cs.Ready,
+				RestartCount: cs.RestartCount,
+				Image:        cs.Image,
+				State:        state,
+			})
 		}
 
 		pods = append(pods, types.PodInfo{
@@ -107,6 +122,7 @@ func (s *K8SService) ListPods(clusterID uint, namespace string) ([]types.PodInfo
 			Status:       podStatus,
 			NodeName:     pod.Spec.NodeName,
 			Namespace:    pod.Namespace,
+			PodIP:        pod.Status.PodIP,
 			StartTime:    startTime,
 			Labels:       pod.Labels,
 			RestartCount: restartCount,
@@ -277,15 +293,35 @@ func (s *K8SService) ListDeploymentPods(clusterID uint, namespace, deploymentNam
 		}
 		ready := fmt.Sprintf("%d/%d", readyContainers, totalContainers)
 
+		// 提取容器详情
+		var containers []types.ContainerInfo
+		for _, cs := range pod.Status.ContainerStatuses {
+			state := "running"
+			if cs.State.Waiting != nil {
+				state = "waiting"
+			} else if cs.State.Terminated != nil {
+				state = "terminated"
+			}
+			containers = append(containers, types.ContainerInfo{
+				Name:         cs.Name,
+				Ready:        cs.Ready,
+				RestartCount: cs.RestartCount,
+				Image:        cs.Image,
+				State:        state,
+			})
+		}
+
 		pods = append(pods, types.PodInfo{
 			Name:         pod.Name,
 			Status:       podStatus,
 			NodeName:     pod.Spec.NodeName,
 			Namespace:    pod.Namespace,
+			PodIP:        pod.Status.PodIP,
 			StartTime:    startTime,
 			Labels:       pod.Labels,
 			RestartCount: restartCount,
 			Ready:        ready,
+			Containers:   containers,
 		})
 	}
 
@@ -431,3 +467,158 @@ func (w *wsStreamHandler) Write(p []byte) (int, error) {
 	}
 	return len(p), nil
 }
+
+// DeletePod 删除指定的 K8s Pod。
+func (s *K8SService) DeletePod(clusterID uint, namespace, podName string) error {
+	cluster, err := s.clusterRepo.GetByID(clusterID)
+	if err != nil {
+		return err
+	}
+
+	clientset, err := s.createK8sClient(cluster)
+	if err != nil {
+		return err
+	}
+
+	return clientset.CoreV1().Pods(namespace).Delete(context.TODO(), podName, metav1.DeleteOptions{})
+}
+
+// GetPodMetrics 获取指定命名空间下所有 Pod 的 CPU/内存使用情况。
+// 通过 K8s Metrics API (/apis/metrics.k8s.io/v1beta1) 获取。
+// 如果集群未安装 metrics-server，返回空 map（不报错）。
+func (s *K8SService) GetPodMetrics(clusterID uint, namespace string) (map[string]types.PodMetric, error) {
+	cluster, err := s.clusterRepo.GetByID(clusterID)
+	if err != nil {
+		return nil, err
+	}
+
+	restConfig := core.NewK8sRestConfig(
+		cluster.ApiServer,
+		cluster.CaCert,
+		cluster.ClientCert,
+		cluster.ClientKey,
+		cluster.Token,
+		cluster.SkipVerify,
+	)
+
+	clientset, err := kubernetes.NewForConfig(restConfig)
+	if err != nil {
+		return nil, fmt.Errorf("创建K8s客户端失败: %v", err)
+	}
+
+	// 通过 REST 客户端直接请求 Metrics API
+	req := clientset.CoreV1().RESTClient().Get().
+		AbsPath("/apis/metrics.k8s.io/v1beta1").
+		Namespace(namespace).
+		Resource("pods").
+		SetHeader("Accept", "application/json")
+
+	raw, err := req.DoRaw(context.TODO())
+	if err != nil {
+		// metrics-server 未安装或不可用 → 返回空 map
+		log.S().Debugf("获取 Pod Metrics 失败（可能未安装 metrics-server）: %v", err)
+		return map[string]types.PodMetric{}, nil
+	}
+
+	// 手动解析 JSON，避免引入额外的 metrics 客户端包
+	var result struct {
+		Items []struct {
+			Metadata struct {
+				Name string `json:"name"`
+			} `json:"metadata"`
+			Containers []struct {
+				Usage struct {
+					CPU    string `json:"cpu"`
+					Memory string `json:"memory"`
+				} `json:"usage"`
+			} `json:"containers"`
+		} `json:"items"`
+	}
+
+	if err := json.Unmarshal(raw, &result); err != nil {
+		log.S().Warnf("解析 Pod Metrics 失败: %v", err)
+		return map[string]types.PodMetric{}, nil
+	}
+
+	metrics := make(map[string]types.PodMetric)
+	for _, item := range result.Items {
+		var totalCPU, totalMemory int64
+		for _, c := range item.Containers {
+			cpuMilli, _ := parseCPUToMilli(c.Usage.CPU)
+			memBytes, _ := parseMemToBytes(c.Usage.Memory)
+			totalCPU += cpuMilli
+			totalMemory += memBytes
+		}
+		metrics[item.Metadata.Name] = types.PodMetric{
+			CPU:    formatMilliCPU(totalCPU),
+			Memory: formatBytes(totalMemory),
+		}
+	}
+
+	return metrics, nil
+}
+
+// parseCPUToMilli 将 K8s CPU 值（"100m" / "1" / "500u"）转换为毫核。
+func parseCPUToMilli(cpu string) (int64, error) {
+	cpu = strings.TrimSpace(cpu)
+	if cpu == "" {
+		return 0, nil
+	}
+	// "100m" → 100
+	if strings.HasSuffix(cpu, "m") {
+		return strconv.ParseInt(strings.TrimSuffix(cpu, "m"), 10, 64)
+	}
+	// "1" → 1000 (cores to millicores)
+	// Nano cores "5000000000n" → 5
+	if strings.HasSuffix(cpu, "n") {
+		v, err := strconv.ParseInt(strings.TrimSuffix(cpu, "n"), 10, 64)
+		return v / 1000000, err
+	}
+	v, err := strconv.ParseFloat(cpu, 64)
+	return int64(v * 1000), err
+}
+
+// parseMemToBytes 将 K8s 内存值（"128Mi" / "1Gi" / "128974848"）转换为字节。
+func parseMemToBytes(mem string) (int64, error) {
+	mem = strings.TrimSpace(mem)
+	if mem == "" {
+		return 0, nil
+	}
+	if strings.HasSuffix(mem, "Ki") {
+		v, err := strconv.ParseInt(strings.TrimSuffix(mem, "Ki"), 10, 64)
+		return v * 1024, err
+	}
+	if strings.HasSuffix(mem, "Mi") {
+		v, err := strconv.ParseInt(strings.TrimSuffix(mem, "Mi"), 10, 64)
+		return v * 1024 * 1024, err
+	}
+	if strings.HasSuffix(mem, "Gi") {
+		v, err := strconv.ParseInt(strings.TrimSuffix(mem, "Gi"), 10, 64)
+		return v * 1024 * 1024 * 1024, err
+	}
+	// Plain bytes number
+	return strconv.ParseInt(mem, 10, 64)
+}
+
+// formatMilliCPU 将毫核值格式化为人类可读的 CPU 字符串。
+func formatMilliCPU(milli int64) string {
+	if milli >= 1000 {
+		return fmt.Sprintf("%.2f", float64(milli)/1000)
+	}
+	return fmt.Sprintf("%dm", milli)
+}
+
+// formatBytes 将字节数格式化为人类可读的内存字符串。
+func formatBytes(bytes int64) string {
+	if bytes >= 1024*1024*1024 {
+		return fmt.Sprintf("%.2fGi", float64(bytes)/(1024*1024*1024))
+	}
+	if bytes >= 1024*1024 {
+		return fmt.Sprintf("%.2fMi", float64(bytes)/(1024*1024))
+	}
+	if bytes >= 1024 {
+		return fmt.Sprintf("%.2fKi", float64(bytes)/1024)
+	}
+	return fmt.Sprintf("%dB", bytes)
+}
+

@@ -378,6 +378,16 @@ func RegisterK8SRoutes(r *gin.Engine, svc *service.K8SService) {
 				ListNamespacesHandler(c, svc)
 			})
 
+			// 获取 Pod Metrics（CPU/内存使用量）
+			clusters.GET("/:id/pods/metrics", func(c *gin.Context) {
+				GetPodMetricsHandler(c, svc)
+			})
+
+			// 删除 Pod
+			clusters.DELETE("/:id/pods/:podName", func(c *gin.Context) {
+				DeletePodHandler(c, svc)
+			})
+
 			// 删除集群
 			clusters.DELETE("/:id", func(c *gin.Context) {
 				DeleteClusterHandler(c, svc)
@@ -492,4 +502,68 @@ func GetPodLogsHandler(c *gin.Context, svc *service.K8SService) {
 		return
 	}
 	types.Success(c, result)
+}
+
+// DeletePodHandler 删除指定的 K8s Pod
+// @Summary 删除 K8s Pod
+// @Description 删除指定命名空间下的 Pod
+// @Tags k8s
+// @Param id path int true "集群ID"
+// @Param podName path string true "Pod 名称"
+// @Param namespace query string false "命名空间" default(default)
+// @Success 200 {object} map[string]string
+// @Router /api/k8s/clusters/{id}/pods/{podName} [delete]
+func DeletePodHandler(c *gin.Context, svc *service.K8SService) {
+	idStr := c.Param("id")
+	id, err := strconv.Atoi(idStr)
+	if err != nil {
+		types.Error(c, http.StatusBadRequest, "invalid id format")
+		return
+	}
+
+	podName := c.Param("podName")
+	if podName == "" {
+		types.Error(c, http.StatusBadRequest, "podName is required")
+		return
+	}
+
+	namespace := c.Query("namespace")
+	if namespace == "" {
+		namespace = "default"
+	}
+
+	if err := svc.DeletePod(uint(id), namespace, podName); err != nil {
+		types.Error(c, http.StatusInternalServerError, err.Error())
+		return
+	}
+	types.Success(c, map[string]string{"message": "Pod 删除成功"})
+}
+
+// GetPodMetricsHandler 获取 Pod 的 CPU/内存使用情况
+// @Summary 获取 Pod Metrics
+// @Description 获取指定命名空间下所有 Pod 的 CPU/内存使用量（需要集群安装 metrics-server）
+// @Tags k8s
+// @Param id path int true "集群ID"
+// @Param namespace query string false "命名空间" default(default)
+// @Success 200 {object} map[string]types.PodMetric
+// @Router /api/k8s/clusters/{id}/pods/metrics [get]
+func GetPodMetricsHandler(c *gin.Context, svc *service.K8SService) {
+	idStr := c.Param("id")
+	id, err := strconv.Atoi(idStr)
+	if err != nil {
+		types.Error(c, http.StatusBadRequest, "invalid id format")
+		return
+	}
+
+	namespace := c.Query("namespace")
+	if namespace == "" {
+		namespace = "default"
+	}
+
+	metrics, err := svc.GetPodMetrics(uint(id), namespace)
+	if err != nil {
+		types.Error(c, http.StatusInternalServerError, err.Error())
+		return
+	}
+	types.Success(c, metrics)
 }
