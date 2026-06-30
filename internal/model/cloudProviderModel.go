@@ -5,7 +5,6 @@ import "github.com/ZebraOps/ZebraCICD/pkg/timeutil"
 type CloudProvider struct {
 	ID          uint              `gorm:"primaryKey" json:"id"`
 	Name        string            `gorm:"size:255;uniqueIndex;not null;comment:云厂商名称" json:"name"`
-	DisplayName string            `gorm:"size:255;comment:显示名称" json:"display_name"`
 	Description string            `gorm:"type:text;comment:云厂商描述" json:"description"`
 	Provider    string            `gorm:"size:50;uniqueIndex;not null;comment:提供商标识(aliyun/aws/azure/gcp)" json:"provider"`
 	Region      string            `gorm:"size:100;comment:默认区域" json:"region"`

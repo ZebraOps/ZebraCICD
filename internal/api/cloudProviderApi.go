@@ -151,9 +151,6 @@ func UpdateCloudProviderHandler(c *gin.Context, svc *service.CloudProviderServic
 	if req.Name != "" {
 		existingProvider.Name = req.Name
 	}
-	if req.DisplayName != "" {
-		existingProvider.DisplayName = req.DisplayName
-	}
 	if req.Description != "" {
 		existingProvider.Description = req.Description
 	}
