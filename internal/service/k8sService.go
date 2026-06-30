@@ -137,7 +137,12 @@ func (s *K8SService) ListPods(clusterID uint, namespace string) ([]types.PodInfo
 
 // getPodDetailedStatus 获取详细的 Pod 状态
 func getPodDetailedStatus(pod *corev1.Pod) string {
-	// 首先检查 Pod 状态条件
+	// 优先检查 Pod 是否正在终止（DeletionTimestamp 已设置但容器尚未完全停止）
+	if pod.DeletionTimestamp != nil {
+		return "Terminating"
+	}
+
+	// 检查 Pod 状态条件
 	for _, condition := range pod.Status.Conditions {
 		if condition.Type == corev1.PodScheduled && condition.Status == corev1.ConditionFalse {
 			return string(condition.Reason)
