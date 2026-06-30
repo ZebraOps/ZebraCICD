@@ -99,9 +99,6 @@ func UpdateLanguageHandler(c *gin.Context, svc *service.LanguageService) {
 	if req.Name != "" {
 		existing.Name = req.Name
 	}
-	if req.DisplayName != "" {
-		existing.DisplayName = req.DisplayName
-	}
 	if req.Icon != "" {
 		existing.Icon = req.Icon
 	}

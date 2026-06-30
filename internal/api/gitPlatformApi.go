@@ -103,9 +103,6 @@ func UpdateGitPlatformHandler(c *gin.Context, svc *service.GitPlatformService) {
 	if req.Name != "" {
 		existing.Name = req.Name
 	}
-	if req.DisplayName != "" {
-		existing.DisplayName = req.DisplayName
-	}
 	if req.PlatformType != "" {
 		existing.PlatformType = req.PlatformType
 	}

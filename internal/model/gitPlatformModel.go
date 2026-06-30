@@ -5,7 +5,6 @@ import "github.com/ZebraOps/ZebraCICD/pkg/timeutil"
 type GitPlatform struct {
 	ID          uint              `gorm:"primaryKey" json:"id"`
 	Name        string            `gorm:"size:100;uniqueIndex;not null;comment:平台名称" json:"name"`
-	DisplayName string            `gorm:"size:100;comment:显示名称" json:"display_name"`
 	PlatformType string           `gorm:"size:50;not null;default:'gitlab';comment:平台类型(gitlab/github/gitea/gitee/custom)" json:"platform_type"`
 	URL         string            `gorm:"size:500;not null;comment:平台地址" json:"url"`
 	APIUrl      string            `gorm:"size:500;comment:API地址" json:"api_url"`

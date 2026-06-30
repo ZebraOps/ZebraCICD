@@ -5,7 +5,6 @@ import "github.com/ZebraOps/ZebraCICD/pkg/timeutil"
 type JenkinsPlatform struct {
 	ID          uint              `gorm:"primaryKey" json:"id"`
 	Name        string            `gorm:"size:100;uniqueIndex;not null;comment:平台名称" json:"name"`
-	DisplayName string            `gorm:"size:100;comment:显示名称" json:"display_name"`
 	URL         string            `gorm:"size:500;not null;comment:平台地址" json:"url"`
 	Username    string            `gorm:"size:100;comment:用户名" json:"username"`
 	Password    string            `gorm:"size:255;comment:密码/Token" json:"password"`

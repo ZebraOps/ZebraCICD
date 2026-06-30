@@ -82,9 +82,6 @@ func UpdateJenkinsPlatformHandler(c *gin.Context, svc *service.JenkinsPlatformSe
 	if req.Name != "" {
 		existing.Name = req.Name
 	}
-	if req.DisplayName != "" {
-		existing.DisplayName = req.DisplayName
-	}
 	if req.URL != "" {
 		existing.URL = req.URL
 	}
